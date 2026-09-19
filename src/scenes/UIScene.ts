@@ -280,11 +280,13 @@ export default class UIScene extends Phaser.Scene {
     this.safeBottom = safe.bottom;
     const safeRight = safe.right;
 
-    // Низ — глухая панель: камера мира обрезана по её верху (см. GameScene)
-    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
+    // Низ — глухой бар фиксированной высоты (камера мира обрезана по его верху,
+    // см. GameScene). Фон дотянут до края экрана, чтобы зона Home Indicator была
+    // перекрыта баром, а не пустотой; игровая область от инсета не зависит.
+    const panelTop = height - CONTROLS_HEIGHT;
     this.panelGfx.clear();
     this.panelGfx.fillStyle(0x0a0a10, 0.92);
-    this.panelGfx.fillRect(0, panelTop, width, CONTROLS_HEIGHT + this.safeBottom);
+    this.panelGfx.fillRect(0, panelTop, width, height - panelTop);
     this.panelGfx.lineStyle(2, 0xffffff, 0.12);
     this.panelGfx.lineBetween(0, panelTop, width, panelTop);
     // Верх — лёгкая вуаль для читаемости (строки идут друг за другом, не пересекаются)
@@ -757,7 +759,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Баннер — в верхней трети мира (между верхним HUD и нижним баром)
     const { width, height } = this.scale;
-    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
+    const panelTop = height - CONTROLS_HEIGHT;
     const freeTop = this.safeTop + UI_TOP.bannerTopPad;
     const freeBottom = panelTop - UI_TOP.bannerBottomPad;
     const bannerY =
