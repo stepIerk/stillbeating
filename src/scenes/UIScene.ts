@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CONTROLS_HEIGHT, SKILLS } from '../config/balance';
+import { getSafeAreaInsets } from '../utils/safeArea';
 import ShopPanel, { type ShopPanelPayload } from '../ui/ShopPanel';
 import InventoryPanel, { type InventoryPayload } from '../ui/InventoryPanel';
 import type GameScene from './GameScene';
@@ -157,6 +158,10 @@ export default class UIScene extends Phaser.Scene {
   private gameOverTitle!: Phaser.GameObjects.Text;
   private gameOverStats!: Phaser.GameObjects.Text;
 
+  // Отступ сверху от Dynamic Island / чёлки (iOS standalone, viewport-fit=cover).
+  // Обновляется в layoutHud(), используется и для баннеров.
+  private safeTop = 0;
+
   // Панель лавки (окно покупок) и окно инвентаря
   private shopPanel!: ShopPanel;
   private inventoryPanel!: InventoryPanel;
@@ -256,6 +261,12 @@ export default class UIScene extends Phaser.Scene {
     const width = this.scale.width;
     const height = this.scale.height;
     const panelTop = height - CONTROLS_HEIGHT;
+    // Safe-area: в iOS standalone (ярлык на домашнем экране) верх экрана
+    // занят Dynamic Island, низ — home-индикатором. Канвас полноэкранный,
+    // поэтому сдвигаем HUD вручную. В обычном Safari отступы = 0.
+    const safe = getSafeAreaInsets();
+    this.safeTop = safe.top;
+    const safeBottom = safe.bottom;
 
     this.panelGfx.clear();
     this.panelGfx.fillStyle(0x0a0a10, 0.92);
@@ -279,7 +290,7 @@ export default class UIScene extends Phaser.Scene {
     this.crystalText.setPosition(width / 2, crystalY);
 
     this.attackStatsText.setPosition(width / 2, panelTop + 78);
-    this.timerText.setPosition(width / 2, 26);
+    this.timerText.setPosition(width / 2, 26 + this.safeTop);
 
     // Центральная колонка — характеристики забега
     const centerX = width / 2;
@@ -292,22 +303,22 @@ export default class UIScene extends Phaser.Scene {
     this.killsText.setPosition(centerX, middleTop + 90);
     this.goldText.setPosition(centerX, middleTop + 110);
 
-    // Управление
+    // Управление (низ приподнят на safe-area, чтобы не перекрыл home-индикатор)
     this.joyBase.setPosition(
-      JOY_MARGIN_X + JOY_BASE_RADIUS,
-      height - JOY_BOTTOM_MARGIN - JOY_BASE_RADIUS,
+      JOY_MARGIN_X + JOY_BASE_RADIUS + safe.left,
+      height - JOY_BOTTOM_MARGIN - JOY_BASE_RADIUS - safeBottom,
     );
     this.joyKnob.setPosition(this.joyBase.x, this.joyBase.y);
 
     // Кнопка атаки приподнята, чтобы крест навыков поместился над и под ней
-    this.attackX = width - ATTACK_MARGIN_X - ATTACK_RADIUS;
-    this.attackY = height - ATTACK_BOTTOM_MARGIN - ATTACK_RADIUS - SKILL_OFFSET;
+    this.attackX = width - ATTACK_MARGIN_X - ATTACK_RADIUS - safe.right;
+    this.attackY = height - ATTACK_BOTTOM_MARGIN - ATTACK_RADIUS - SKILL_OFFSET - safeBottom;
     this.attackButton.setPosition(this.attackX, this.attackY);
     this.attackZone.setPosition(this.attackX, this.attackY);
     this.attackLabel.setPosition(this.attackX, this.attackY);
 
-    this.intermissionText.setPosition(width / 2, 58);
-    this.shopHint.setPosition(width / 2, 84);
+    this.intermissionText.setPosition(width / 2, 58 + this.safeTop);
+    this.shopHint.setPosition(width / 2, 84 + this.safeTop);
 
     // Кнопки навыков — крест: сверху, слева, снизу от кнопки атаки
     const skillPositions: Array<[number, number]> = [
@@ -325,11 +336,11 @@ export default class UIScene extends Phaser.Scene {
       btn.levelText.setPosition(x + SKILL_RADIUS * 0.62, y + SKILL_RADIUS * 0.66);
     });
 
-    // Кнопка инвентаря в правом верхнем углу
-    this.invButton.setPosition(width - 34, 30);
-    this.invZone.setPosition(width - 34, 30);
-    this.invLabel.setPosition(width - 34, 30);
-    this.invBadge.setPosition(width - 34, 58);
+    // Кнопка инвентаря в правом верхнем углу (с учётом выреза и Dynamic Island)
+    this.invButton.setPosition(width - 34 - safe.right, 30 + this.safeTop);
+    this.invZone.setPosition(width - 34 - safe.right, 30 + this.safeTop);
+    this.invLabel.setPosition(width - 34 - safe.right, 30 + this.safeTop);
+    this.invBadge.setPosition(width - 34 - safe.right, 58 + this.safeTop);
 
     // Оверлеи
     this.respawnOverlay.setPosition(width / 2, panelTop / 2).setSize(width, panelTop);
@@ -705,7 +716,7 @@ export default class UIScene extends Phaser.Scene {
     this.banner?.destroy();
 
     const banner = this.add
-      .text(this.scale.width / 2, 120, `${title}\n${subtitle}`, {
+      .text(this.scale.width / 2, 120 + this.safeTop, `${title}\n${subtitle}`, {
         fontFamily: FONT,
         fontSize: '30px',
         fontStyle: 'bold',

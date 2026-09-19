@@ -4,8 +4,12 @@ body {
   padding: 0;
   width: 100%;
   height: 100%;
+  /* 100dvh — фикс iOS Safari/standalone, где 100% включает зону под тулбаром */
+  height: 100dvh;
   overflow: hidden;
   background: #000;
+  /* viewport-fit=cover уже в meta: канвас уходит под вырез,
+     отступы для HUD добавляются в JS через getSafeAreaInsets() */
 
   /* Мобильные устройства: запрет скролла, зума и выделения */
   touch-action: none;
@@ -19,6 +23,7 @@ body {
 #app {
   width: 100%;
   height: 100%;
+  height: 100dvh;
 }
 
 canvas {
