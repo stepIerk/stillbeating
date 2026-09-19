@@ -1,0 +1,26 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+
+  /* Мобильные устройства: запрет скролла, зума и выделения */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  position: fixed;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+canvas {
+  display: block;
+}
