@@ -1,25 +1,16 @@
 import Phaser from 'phaser';
 import { CONTROLS_HEIGHT, SKILLS } from '../config/balance';
+import { UI_ATTACK, UI_BOTTOM, UI_JOY, UI_SKILLS, UI_TOP } from '../config/uiLayout';
 import { getSafeAreaInsets } from '../utils/safeArea';
+import Orb from '../ui/Orb';
 import ShopPanel, { type ShopPanelPayload } from '../ui/ShopPanel';
 import InventoryPanel, { type InventoryPayload } from '../ui/InventoryPanel';
 import type GameScene from './GameScene';
 
 const FONT = 'Arial, sans-serif';
 
-// Джойстик (слева)
-const JOY_BASE_RADIUS = 58;
-const JOY_KNOB_RADIUS = 26;
-const JOY_MARGIN_X = 24;
-const JOY_BOTTOM_MARGIN = 22;
-
-// Кнопка атаки (справа)
-const ATTACK_RADIUS = 42;
-const ATTACK_MARGIN_X = 24;
-const ATTACK_BOTTOM_MARGIN = 26;
-// Кнопки навыков — крест вокруг кнопки атаки
-const SKILL_RADIUS = 27;
-const SKILL_OFFSET = ATTACK_RADIUS + SKILL_RADIUS + 8;
+// Все отступы и размеры — в src/config/uiLayout.ts (UI_TOP / UI_BOTTOM /
+// UI_JOY / UI_ATTACK / UI_SKILLS), здесь только логика.
 
 export interface StatsPayload {
   hp: number;
@@ -92,8 +83,9 @@ class Bar {
 }
 
 /**
- * UI-сцена: джойстик, кнопка атаки, характеристики внизу,
- * баннеры волн, оверлеи смерти и конец забега.
+ * UI-сцена: сверху кристалл/золото/волна, снизу глухой бар —
+ * джойстик, кнопки, колбы здоровья/маны и опыт. Мир под бар не заходит.
+ * Баннеры волн, оверлеи смерти и конец забега.
  */
 export default class UIScene extends Phaser.Scene {
   // Ввод
@@ -105,21 +97,24 @@ export default class UIScene extends Phaser.Scene {
 
   // HUD
   private panelGfx!: Phaser.GameObjects.Graphics;
-  private hpBar!: Bar;
-  private manaBar!: Bar;
   private crystalBar!: Bar;
   private xpBar!: Bar;
-  private hpText!: Phaser.GameObjects.Text;
-  private manaText!: Phaser.GameObjects.Text;
   private crystalText!: Phaser.GameObjects.Text;
   private attackStatsText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
   private levelText!: Phaser.GameObjects.Text;
+  private levelBadge!: Phaser.GameObjects.Arc;
   private xpText!: Phaser.GameObjects.Text;
   private waveText!: Phaser.GameObjects.Text;
-  private enemiesText!: Phaser.GameObjects.Text;
   private killsText!: Phaser.GameObjects.Text;
   private goldText!: Phaser.GameObjects.Text;
+  // Колбы здоровья/маны в нижнем баре
+  private hpOrb!: Orb;
+  private manaOrb!: Orb;
+  private hpOrbText!: Phaser.GameObjects.Text;
+  private manaOrbText!: Phaser.GameObjects.Text;
+  private hpCapText!: Phaser.GameObjects.Text;
+  private manaCapText!: Phaser.GameObjects.Text;
 
   // Управление
   private joyBase!: Phaser.GameObjects.Arc;
@@ -131,7 +126,7 @@ export default class UIScene extends Phaser.Scene {
   private attackX = 0;
   private attackY = 0;
 
-  // Кнопки навыков (крест вокруг кнопки атаки): 0 — сверху, 1 — слева, 2 — снизу
+  // Кнопки навыков веером под атакой: 0 — справа-внизу, 1 — слева-внизу, 2 — под атакой
   private skillButtons: Array<{
     button: Phaser.GameObjects.Arc;
     cooldown: Phaser.GameObjects.Graphics;
@@ -158,9 +153,10 @@ export default class UIScene extends Phaser.Scene {
   private gameOverTitle!: Phaser.GameObjects.Text;
   private gameOverStats!: Phaser.GameObjects.Text;
 
-  // Отступ сверху от Dynamic Island / чёлки (iOS standalone, viewport-fit=cover).
-  // Обновляется в layoutHud(), используется и для баннеров.
+  // Safe-area (iOS standalone, viewport-fit=cover). Обновляется в layoutHud().
   private safeTop = 0;
+  private safeLeft = 0;
+  private safeBottom = 0;
 
   // Панель лавки (окно покупок) и окно инвентаря
   private shopPanel!: ShopPanel;
@@ -215,22 +211,40 @@ export default class UIScene extends Phaser.Scene {
   // ---------- HUD: полоски, текст, раскладка ----------
 
   private buildHud(): void {
-    this.hpBar = new Bar(this, 0x4fc3f7, 16);
-    this.manaBar = new Bar(this, 0xb39ddb, 9);
-    this.crystalBar = new Bar(this, 0x4dd0e1, 11);
-    this.xpBar = new Bar(this, 0xb39ddb, 7);
+    this.crystalBar = new Bar(this, 0x4dd0e1, UI_TOP.crystalHeight);
+    this.xpBar = new Bar(this, 0xb39ddb, UI_BOTTOM.xpBarHeight);
 
-    this.hpText = this.makeText(13, '#e8e8f0', true);
-    this.manaText = this.makeText(11, '#e8e8f0');
-    this.crystalText = this.makeText(11, '#e8e8f0');
-    this.attackStatsText = this.makeText(13, '#a0a0b0');
-    this.timerText = this.makeText(22, '#8a8a9a');
-    this.levelText = this.makeText(13, '#e8e8f0', true);
-    this.xpText = this.makeText(10, '#8a8a9a');
-    this.waveText = this.makeText(12, '#a0a0b0');
-    this.enemiesText = this.makeText(12, '#a0a0b0');
-    this.killsText = this.makeText(12, '#a0a0b0');
+    // Верх: кристалл, золото, волна
+    this.crystalText = this.makeText(10, '#e8e8f0', true);
     this.goldText = this.makeText(13, '#ffd54f', true);
+    this.waveText = this.makeText(12, '#a0a0b0');
+    this.timerText = this.makeText(12, '#8a8a9a');
+    this.killsText = this.makeText(12, '#a0a0b0');
+    this.attackStatsText = this.makeText(10, '#a0a0b0');
+    this.goldText.setOrigin(0, 0.5);
+    this.waveText.setOrigin(0, 0.5);
+    this.timerText.setOrigin(0, 0.5);
+    this.killsText.setOrigin(0, 0.5);
+    this.attackStatsText.setOrigin(0, 0.5);
+
+    // Низ: колбы здоровья/маны
+    this.hpOrb = new Orb(this, UI_BOTTOM.orbRadius, 0x4fc3f7);
+    this.manaOrb = new Orb(this, UI_BOTTOM.orbRadius, 0xb39ddb);
+    this.hpOrbText = this.makeText(11, '#e8e8f0', true);
+    this.manaOrbText = this.makeText(11, '#e8e8f0', true);
+    this.hpCapText = this.makeText(9, '#e8e8f0', true);
+    this.manaCapText = this.makeText(9, '#e8e8f0', true);
+    this.hpCapText.setText('HP');
+    this.manaCapText.setText('MP');
+
+    // Низ: бейдж уровня на полоске опыта
+    this.levelBadge = this.add
+      .circle(0, 0, UI_BOTTOM.levelBadgeRadius, 0x1a1a24, 1)
+      .setStrokeStyle(2, 0xffd54f, 0.8)
+      .setDepth(100);
+    this.levelText = this.makeText(13, '#ffd54f', true);
+    this.levelText.setText('1');
+    this.xpText = this.makeText(10, '#8a8a9a');
 
     this.intermissionText = this.makeText(14, '#c5e1a5');
     this.intermissionText.setVisible(false);
@@ -239,7 +253,6 @@ export default class UIScene extends Phaser.Scene {
     this.shopHint.setText('АТАКУЙ ЛАВКУ — ОТКРОЕТСЯ МАГАЗИН');
     this.shopHint.setVisible(false);
 
-    this.hpBar.setRatio(1);
     this.crystalBar.setRatio(1);
     this.xpBar.setRatio(0);
   }
@@ -256,75 +269,83 @@ export default class UIScene extends Phaser.Scene {
       .setDepth(102);
   }
 
-  /** Раскладка нижней панели под текущий размер экрана */
+  /** Раскладка HUD: сверху кристалл/золото/волна, снизу глухой бар (мир под него не заходит) */
   private layoutHud(): void {
     const width = this.scale.width;
     const height = this.scale.height;
-    const panelTop = height - CONTROLS_HEIGHT;
-    // Safe-area: в iOS standalone (ярлык на домашнем экране) верх экрана
-    // занят Dynamic Island, низ — home-индикатором. Канвас полноэкранный,
-    // поэтому сдвигаем HUD вручную. В обычном Safari отступы = 0.
+    // Safe-area: в iOS standalone верх занят Dynamic Island, низ — home-индикатором.
     const safe = getSafeAreaInsets();
     this.safeTop = safe.top;
-    const safeBottom = safe.bottom;
+    this.safeLeft = safe.left;
+    this.safeBottom = safe.bottom;
+    const safeRight = safe.right;
 
+    // Низ — глухая панель: камера мира обрезана по её верху (см. GameScene)
+    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
     this.panelGfx.clear();
     this.panelGfx.fillStyle(0x0a0a10, 0.92);
-    this.panelGfx.fillRect(0, panelTop, width, CONTROLS_HEIGHT);
+    this.panelGfx.fillRect(0, panelTop, width, CONTROLS_HEIGHT + this.safeBottom);
     this.panelGfx.lineStyle(2, 0xffffff, 0.12);
     this.panelGfx.lineBetween(0, panelTop, width, panelTop);
+    // Верх — лёгкая вуаль для читаемости (строки идут друг за другом, не пересекаются)
+    this.panelGfx.fillGradientStyle(0x0a0a10, 0x0a0a10, 0x0a0a10, 0x0a0a10, 0.55, 0.55, 0, 0);
+    this.panelGfx.fillRect(0, 0, width, this.safeTop + UI_TOP.veilHeight);
 
-    const margin = 12;
-    const barWidth = width - margin * 2;
+    // --- Верх: кристалл слева, сумка справа ---
+    const barX = UI_TOP.leftMargin + this.safeLeft;
+    const barW = width - barX - UI_TOP.bagColumnWidth - safeRight;
+    const crystalY = this.safeTop + UI_TOP.crystalY;
+    this.crystalBar.layout(barX, crystalY, barW);
+    this.crystalText.setPosition(barX + barW / 2, crystalY);
 
-    const hpY = panelTop + 20;
-    this.hpBar.layout(margin, hpY, barWidth);
-    this.hpText.setPosition(width / 2, hpY);
+    const colX = width - UI_TOP.bagX - safeRight;
+    this.invButton.setPosition(colX, UI_TOP.bagY + this.safeTop);
+    this.invZone.setPosition(colX, UI_TOP.bagY + this.safeTop);
+    this.invLabel.setPosition(colX, UI_TOP.bagY + this.safeTop);
+    this.invBadge.setPosition(colX, UI_TOP.badgeY + this.safeTop);
 
-    const manaY = panelTop + 42;
-    this.manaBar.layout(margin, manaY, barWidth);
-    this.manaText.setPosition(width / 2, manaY);
+    // --- Верх: строки идут друг за другом от левого края ---
+    this.layoutTopRows();
 
-    const crystalY = panelTop + 60;
-    this.crystalBar.layout(margin, crystalY, barWidth);
-    this.crystalText.setPosition(width / 2, crystalY);
+    this.intermissionText.setPosition(width / 2, UI_TOP.intermissionY + this.safeTop);
+    this.shopHint.setPosition(width / 2, UI_TOP.shopHintY + this.safeTop);
 
-    this.attackStatsText.setPosition(width / 2, panelTop + 78);
-    this.timerText.setPosition(width / 2, 26 + this.safeTop);
+    // --- Низ: в самом низу полоска опыта во всю ширину + бейдж уровня по центру ---
+    this.xpBar.layout(0, panelTop + CONTROLS_HEIGHT - UI_BOTTOM.xpBarY, width);
+    this.levelBadge.setPosition(width / 2, panelTop + CONTROLS_HEIGHT - UI_BOTTOM.levelBadgeY);
+    this.levelText.setPosition(width / 2, panelTop + CONTROLS_HEIGHT - UI_BOTTOM.levelBadgeY);
+    this.xpText.setPosition(width / 2, panelTop + CONTROLS_HEIGHT - UI_BOTTOM.xpTextY);
 
-    // Центральная колонка — характеристики забега
-    const centerX = width / 2;
-    const middleTop = panelTop + 106;
-    this.levelText.setPosition(centerX, middleTop);
-    this.xpBar.layout(centerX - 45, middleTop + 18, 90);
-    this.xpText.setPosition(centerX, middleTop + 30);
-    this.waveText.setPosition(centerX, middleTop + 50);
-    this.enemiesText.setPosition(centerX, middleTop + 70);
-    this.killsText.setPosition(centerX, middleTop + 90);
-    this.goldText.setPosition(centerX, middleTop + 110);
+    // --- Низ: колбы здоровья и маны ---
+    const orbY = panelTop + UI_BOTTOM.orbY;
+    const hpX = UI_BOTTOM.orbHpX + this.safeLeft;
+    const manaX = UI_BOTTOM.orbHpX + this.safeLeft + UI_BOTTOM.orbRadius * 2 + 10;
+    this.hpOrb.layout(hpX, orbY, 'hp');
+    this.manaOrb.layout(manaX, orbY + 7, 'mana');
+    this.hpOrbText.setPosition(hpX, orbY);
+    this.manaOrbText.setPosition(manaX, orbY);
+    this.hpCapText.setPosition(hpX, panelTop + UI_BOTTOM.orbCapY);
+    this.manaCapText.setPosition(manaX, panelTop + UI_BOTTOM.orbCapY);
 
-    // Управление (низ приподнят на safe-area, чтобы не перекрыл home-индикатор)
+    // --- Низ: управление вплотную к краю (приподнято только на home-индикатор) ---
     this.joyBase.setPosition(
-      JOY_MARGIN_X + JOY_BASE_RADIUS + safe.left,
-      height - JOY_BOTTOM_MARGIN - JOY_BASE_RADIUS - safeBottom,
+      UI_JOY.marginX + UI_JOY.baseRadius + this.safeLeft,
+      height - UI_JOY.bottomMargin - UI_JOY.baseRadius - this.safeBottom,
     );
     this.joyKnob.setPosition(this.joyBase.x, this.joyBase.y);
 
-    // Кнопка атаки приподнята, чтобы крест навыков поместился над и под ней
-    this.attackX = width - ATTACK_MARGIN_X - ATTACK_RADIUS - safe.right;
-    this.attackY = height - ATTACK_BOTTOM_MARGIN - ATTACK_RADIUS - SKILL_OFFSET - safeBottom;
+    // Атака — верхняя в группе, навыки веером под ней
+    this.attackX = width - UI_ATTACK.rightRoom - safeRight;
+    this.attackY = height - UI_ATTACK.lift - this.safeBottom;
     this.attackButton.setPosition(this.attackX, this.attackY);
     this.attackZone.setPosition(this.attackX, this.attackY);
     this.attackLabel.setPosition(this.attackX, this.attackY);
 
-    this.intermissionText.setPosition(width / 2, 58 + this.safeTop);
-    this.shopHint.setPosition(width / 2, 84 + this.safeTop);
-
-    // Кнопки навыков — крест: сверху, слева, снизу от кнопки атаки
+    // Кнопки навыков веером: справа-внизу, слева-внизу, под атакой
     const skillPositions: Array<[number, number]> = [
-      [this.attackX, this.attackY - SKILL_OFFSET],
-      [this.attackX - SKILL_OFFSET, this.attackY],
-      [this.attackX, this.attackY + SKILL_OFFSET],
+      [this.attackX + UI_SKILLS.dx, this.attackY + UI_SKILLS.dySide],
+      [this.attackX - UI_SKILLS.dx, this.attackY + UI_SKILLS.dySide],
+      [this.attackX, this.attackY + UI_SKILLS.dyBottom],
     ];
     this.skillButtons.forEach((btn, index) => {
       const [x, y] = skillPositions[index];
@@ -333,16 +354,10 @@ export default class UIScene extends Phaser.Scene {
       btn.button.setPosition(x, y);
       btn.zone.setPosition(x, y);
       btn.label.setPosition(x, y);
-      btn.levelText.setPosition(x + SKILL_RADIUS * 0.62, y + SKILL_RADIUS * 0.66);
+      btn.levelText.setPosition(x + UI_SKILLS.radius * 0.62, y + UI_SKILLS.radius * 0.66);
     });
 
-    // Кнопка инвентаря в правом верхнем углу (с учётом выреза и Dynamic Island)
-    this.invButton.setPosition(width - 34 - safe.right, 30 + this.safeTop);
-    this.invZone.setPosition(width - 34 - safe.right, 30 + this.safeTop);
-    this.invLabel.setPosition(width - 34 - safe.right, 30 + this.safeTop);
-    this.invBadge.setPosition(width - 34 - safe.right, 58 + this.safeTop);
-
-    // Оверлеи
+    // Оверлеи — по области мира (над баром)
     this.respawnOverlay.setPosition(width / 2, panelTop / 2).setSize(width, panelTop);
     this.respawnText.setPosition(width / 2, panelTop / 2);
     this.gameOverBg.setPosition(width / 2, panelTop / 2).setSize(width, panelTop);
@@ -350,18 +365,33 @@ export default class UIScene extends Phaser.Scene {
     this.gameOverStats.setPosition(width / 2, panelTop / 2 + 16);
   }
 
+  /** Верхние строки: каждая следующая подпись встаёт после предыдущей — пересечений нет */
+  private layoutTopRows(): void {
+    const x0 = UI_TOP.leftMargin + this.safeLeft;
+    const rowB = this.safeTop + UI_TOP.rowB;
+    this.goldText.setPosition(x0, rowB);
+    this.waveText.setPosition(this.goldText.x + this.goldText.width + UI_TOP.rowGap, rowB);
+    const rowC = this.safeTop + UI_TOP.rowC;
+    this.timerText.setPosition(x0, rowC);
+    this.killsText.setPosition(this.timerText.x + this.timerText.width + UI_TOP.rowGap, rowC);
+    this.attackStatsText.setPosition(
+      this.killsText.x + this.killsText.width + UI_TOP.rowGap,
+      rowC,
+    );
+  }
+
   // ---------- Джойстик ----------
 
   private buildJoystick(): void {
     this.joyBase = this.add
-      .circle(0, 0, JOY_BASE_RADIUS, 0xffffff, 0.08)
+      .circle(0, 0, UI_JOY.baseRadius, 0xffffff, 0.08)
       .setStrokeStyle(2, 0xffffff, 0.3)
       .setDepth(100);
 
-    this.joyKnob = this.add.circle(0, 0, JOY_KNOB_RADIUS, 0xffffff, 0.55).setDepth(101);
+    this.joyKnob = this.add.circle(0, 0, UI_JOY.knobRadius, 0xffffff, 0.55).setDepth(101);
   }
 
-  /** Кнопки навыков — крест вокруг кнопки атаки: тап = каст навыка */
+  /** Кнопки навыков веером под атакой: тап = каст навыка */
   private buildSkillButtons(): void {
     // Сцена может создаваться повторно (возврат в меню и снова в игру):
     // старые кнопки уничтожены рестартом сцены, а массив нужно очистить,
@@ -371,7 +401,7 @@ export default class UIScene extends Phaser.Scene {
 
     for (let slot = 0; slot < 3; slot++) {
       const button = this.add
-        .circle(0, 0, SKILL_RADIUS, 0xb39ddb, 0.12)
+        .circle(0, 0, UI_SKILLS.radius, 0xb39ddb, 0.12)
         .setStrokeStyle(2, 0xb39ddb, 0.6)
         .setDepth(100);
 
@@ -385,7 +415,7 @@ export default class UIScene extends Phaser.Scene {
       levelText.setDepth(106).setText('');
 
       const zone = this.add
-        .zone(0, 0, SKILL_RADIUS * 2 + 12, SKILL_RADIUS * 2 + 12)
+        .zone(0, 0, UI_SKILLS.radius * 2 + 12, UI_SKILLS.radius * 2 + 12)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true });
       zone.on('pointerdown', () => {
@@ -431,7 +461,7 @@ export default class UIScene extends Phaser.Scene {
       .setDepth(100);
 
     this.invZone = this.add
-      .zone(0, 0, 56, 56)
+      .zone(0, 0, 65, 65)
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
     this.invZone.on('pointerdown', () => {
@@ -461,7 +491,7 @@ export default class UIScene extends Phaser.Scene {
     }
     const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, this.joyBase.x, this.joyBase.y);
     // Захват чуть больше зоны базы — удобнее попадать пальцем
-    if (dist <= JOY_BASE_RADIUS * 2) {
+    if (dist <= UI_JOY.baseRadius * 2) {
       this.joyActive = true;
       this.joyPointerId = pointer.id;
       this.updateJoystick(pointer);
@@ -487,7 +517,7 @@ export default class UIScene extends Phaser.Scene {
     const dx = pointer.x - this.joyBase.x;
     const dy = pointer.y - this.joyBase.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const maxLen = JOY_BASE_RADIUS - 4;
+    const maxLen = UI_JOY.baseRadius - 4;
     const clamped = Math.min(dist, maxLen);
     const nx = dist > 0 ? (dx / dist) * clamped : 0;
     const ny = dist > 0 ? (dy / dist) * clamped : 0;
@@ -507,7 +537,7 @@ export default class UIScene extends Phaser.Scene {
 
   private buildAttackButton(): void {
     this.attackButton = this.add
-      .circle(0, 0, ATTACK_RADIUS, 0xffffff, 0.1)
+      .circle(0, 0, UI_ATTACK.radius, 0xffffff, 0.1)
       .setStrokeStyle(2, 0x4fc3f7, 0.6)
       .setDepth(100);
 
@@ -519,7 +549,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Отдельная зона захвата — надёжнее, чем хит-область круга
     this.attackZone = this.add
-      .zone(0, 0, ATTACK_RADIUS * 2, ATTACK_RADIUS * 2)
+      .zone(0, 0, UI_ATTACK.radius * 2, UI_ATTACK.radius * 2)
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
@@ -552,7 +582,14 @@ export default class UIScene extends Phaser.Scene {
     const start = -Math.PI / 2;
     const end = start + Math.PI * 2 * (1 - ratio);
     this.attackCooldown.fillStyle(0x4fc3f7, 0.35);
-    this.attackCooldown.slice(this.attackX, this.attackY, ATTACK_RADIUS - 3, start, end, false);
+    this.attackCooldown.slice(
+      this.attackX,
+      this.attackY,
+      UI_ATTACK.radius - 3,
+      start,
+      end,
+      false,
+    );
     this.attackCooldown.fillPath();
   }
 
@@ -574,7 +611,7 @@ export default class UIScene extends Phaser.Scene {
       const start = -Math.PI / 2;
       const end = start + Math.PI * 2 * (1 - ratio);
       btn.cooldown.fillStyle(0xb39ddb, 0.4);
-      btn.cooldown.slice(btn.x, btn.y, SKILL_RADIUS - 3, start, end, false);
+      btn.cooldown.slice(btn.x, btn.y, UI_SKILLS.radius - 3, start, end, false);
       btn.cooldown.fillPath();
     }
   }
@@ -662,27 +699,30 @@ export default class UIScene extends Phaser.Scene {
   // ---------- Обработчики событий ----------
 
   private onStats(data: StatsPayload): void {
-    this.hpBar.setRatio(data.hp / data.maxHp);
-    this.hpText.setText(`ЗДОРОВЬЕ ${data.hp}/${data.maxHp}`);
-    this.manaBar.setRatio(data.maxMana > 0 ? data.mana / data.maxMana : 0);
-    this.manaText.setText(`МАНА ${data.mana}/${data.maxMana}`);
-    this.crystalBar.setRatio(data.crystalHp / data.crystalMaxHp);
-    this.crystalText.setText(`КРИСТАЛЛ ${data.crystalHp}/${data.crystalMaxHp}`);
+    // Низ: колбы
+    this.hpOrb.setRatio(data.hp / data.maxHp);
+    this.hpOrbText.setText(`${Math.ceil(data.hp)}/${data.maxHp}`);
+    this.manaOrb.setRatio(data.maxMana > 0 ? data.mana / data.maxMana : 0);
+    this.manaOrbText.setText(`${Math.ceil(data.mana)}/${data.maxMana}`);
 
-    this.attackStatsText.setText(
-      `УРОН ${data.damage}  ·  ${data.attacksPerSec.toFixed(1)}/С  ·  КРИТ ${Math.round(
-        data.critChance * 100,
-      )}%  ·  РАДИУС ${Math.round(data.range)}`,
-    );
-    this.timerText.setText(this.formatTime(data.time));
-
-    this.levelText.setText(`УРОВЕНЬ ${data.level}`);
+    // Низ: опыт и уровень
     this.xpBar.setRatio(data.xpToNext > 0 ? data.xp / data.xpToNext : 0);
+    this.levelText.setText(`${data.level}`);
     this.xpText.setText(`XP ${Math.floor(data.xp)}/${data.xpToNext}`);
-    this.waveText.setText(`ВОЛНА ${data.wave}`);
-    this.enemiesText.setText(`ВРАГИ ${data.enemiesLeft}`);
-    this.killsText.setText(`УБИЙСТВ ${data.kills}`);
+
+    // Верх: кристалл, золото, волна
+    this.crystalBar.setRatio(data.crystalHp / data.crystalMaxHp);
+    this.crystalText.setText(`КРИСТАЛЛ ${Math.ceil(data.crystalHp)}/${data.crystalMaxHp}`);
     this.goldText.setText(`G ${data.gold}`);
+    this.waveText.setText(`ВОЛНА ${data.wave} · ${data.enemiesLeft}`);
+    this.timerText.setText(this.formatTime(data.time));
+    this.killsText.setText(`☠ ${data.kills}`);
+    this.attackStatsText.setText(
+      `УРОН ${data.damage} · ${data.attacksPerSec.toFixed(1)}/С · КРИТ ${Math.round(
+        data.critChance * 100,
+      )}%`,
+    );
+    this.layoutTopRows();
 
     // Бейдж очков на кнопке инвентаря
     this.invBadge.setVisible(data.statPoints > 0);
@@ -715,8 +755,18 @@ export default class UIScene extends Phaser.Scene {
   private showBanner(title: string, subtitle: string): void {
     this.banner?.destroy();
 
+    // Баннер — в верхней трети мира (между верхним HUD и нижним баром)
+    const { width, height } = this.scale;
+    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
+    const freeTop = this.safeTop + UI_TOP.bannerTopPad;
+    const freeBottom = panelTop - UI_TOP.bannerBottomPad;
+    const bannerY =
+      freeBottom - freeTop > 100
+        ? freeTop + (freeBottom - freeTop) * UI_TOP.bannerRatio
+        : height / 2 - UI_TOP.bannerFallbackLift;
+
     const banner = this.add
-      .text(this.scale.width / 2, 120 + this.safeTop, `${title}\n${subtitle}`, {
+      .text(width / 2, bannerY, `${title}\n${subtitle}`, {
         fontFamily: FONT,
         fontSize: '30px',
         fontStyle: 'bold',

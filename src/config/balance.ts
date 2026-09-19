@@ -5,7 +5,7 @@
 export const WORLD_SIZE = 2000;
 export const WALL_THICKNESS = 48;
 /** Высота нижней панели управления: джойстик, кнопки атаки/навыков, характеристики */
-export const CONTROLS_HEIGHT = 240;
+export const CONTROLS_HEIGHT = 200;
 
 /**
  * Атрибуты персонажа. Стартовое значение каждого — ATTRS.startValue.

@@ -20,6 +20,7 @@ import Crystal from '../entities/Crystal';
 import Enemy from '../entities/Enemy';
 import Player from '../entities/Player';
 import Shop from '../entities/Shop';
+import { getSafeAreaInsets } from '../utils/safeArea';
 
 /** Летящий заряд стрелка */
 interface EnemyShot {
@@ -55,8 +56,8 @@ const GAME_OVER_DELAY = 4200;
 function computeZoom(width: number, height: number): number {
   const minSide = Math.min(width, height);
   if (minSide >= 1100) return 1;
-  if (minSide >= 800) return 0.8;
-  return 0.65;
+  if (minSide >= 800) return 0.7;
+  return 0.55;
 }
 
 export default class GameScene extends Phaser.Scene {
@@ -410,10 +411,11 @@ export default class GameScene extends Phaser.Scene {
     cam.setDeadzone(80, 80);
   }
 
-  /** Viewport камеры — весь экран минус нижняя панель управления */
+  /** Viewport камеры — весь экран минус глухой нижний бар (мир под бар не заходит) */
   private positionCameraViewport(): void {
     const { width, height } = this.scale;
-    this.cameras.main.setViewport(0, 0, width, height - CONTROLS_HEIGHT);
+    const safeBottom = getSafeAreaInsets().bottom;
+    this.cameras.main.setViewport(0, 0, width, height - CONTROLS_HEIGHT - safeBottom);
   }
 
   /** Компенсация границ при zoom != 1, чтобы камера не выходила за карту */
