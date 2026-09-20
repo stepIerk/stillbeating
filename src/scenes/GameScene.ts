@@ -16,6 +16,7 @@ import {
   type EnemyTierId,
   type SkillDef,
 } from '../config/balance';
+import { BOTTOM_EXTRA_LIFT } from '../config/uiLayout';
 import Crystal from '../entities/Crystal';
 import Enemy from '../entities/Enemy';
 import Player from '../entities/Player';
@@ -415,12 +416,14 @@ export default class GameScene extends Phaser.Scene {
    * Viewport камеры — весь экран минус глухой нижний бар (мир под бар не заходит).
    * Нижний safe-area (home-индикатор) учитывается: в Safari его отдаёт env(),
    * а в standalone env() врёт (0px, WebKit bug 254868) — его компенсирует
-   * fallback-измерение в safeArea.ts. Фон бара в UIScene при этом дотянут до
-   * края канваса, так что зона индикатора перекрыта баром, а не пустотой.
+   * fallback-измерение в safeArea.ts; сверху добавлен BOTTOM_EXTRA_LIFT —
+   * тот же доп. подъём, что у бара в UIScene (см. config/uiLayout.ts).
+   * Фон бара в UIScene дотянут до края канваса, так что зона индикатора
+   * перекрыта баром, а не пустотой.
    */
   private positionCameraViewport(): void {
     const { width, height } = this.scale;
-    const safeBottom = getSafeAreaInsets().bottom;
+    const safeBottom = getSafeAreaInsets().bottom + BOTTOM_EXTRA_LIFT;
     this.cameras.main.setViewport(0, 0, width, height - CONTROLS_HEIGHT - safeBottom);
   }
 

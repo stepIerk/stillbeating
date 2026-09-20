@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CONTROLS_HEIGHT, SKILLS } from '../config/balance';
-import { UI_ATTACK, UI_BOTTOM, UI_JOY, UI_SKILLS, UI_TOP } from '../config/uiLayout';
+import { UI_ATTACK, UI_BOTTOM, UI_JOY, UI_SKILLS, UI_TOP, BOTTOM_EXTRA_LIFT } from '../config/uiLayout';
 import { getSafeAreaInsets } from '../utils/safeArea';
 import Orb from '../ui/Orb';
 import ShopPanel, { type ShopPanelPayload } from '../ui/ShopPanel';
@@ -282,9 +282,10 @@ export default class UIScene extends Phaser.Scene {
 
     // Низ — глухой бар (камера мира обрезана по его верху, см. GameScene).
     // Бар приподнят на нижний safe-area (в standalone env() врёт и возвращает
-    // 0 — поэтому в safeArea.ts есть fallback-измерение), фон бара при этом
-    // дотянут до края канваса, чтобы зона Home Indicator была перекрыта им.
-    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
+    // 0 — поэтому в safeArea.ts есть fallback-измерение) плюс небольшой
+    // доп. подъём BOTTOM_EXTRA_LIFT. Фон бара при этом дотянут до края
+    // канваса, чтобы зона Home Indicator была перекрыта им.
+    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom - BOTTOM_EXTRA_LIFT;
     this.panelGfx.clear();
     this.panelGfx.fillStyle(0x0a0a10, 0.92);
     this.panelGfx.fillRect(0, panelTop, width, height - panelTop);
@@ -330,16 +331,16 @@ export default class UIScene extends Phaser.Scene {
     this.hpCapText.setPosition(hpX, panelTop + UI_BOTTOM.orbCapY);
     this.manaCapText.setPosition(manaX, panelTop + UI_BOTTOM.orbCapY);
 
-    // --- Низ: управление вплотную к краю (приподнято только на home-индикатор) ---
+    // --- Низ: управление вплотную к краю (приподнято на safe-area + доп. подъём) ---
     this.joyBase.setPosition(
       UI_JOY.marginX + UI_JOY.baseRadius + this.safeLeft,
-      height - UI_JOY.bottomMargin - UI_JOY.baseRadius - this.safeBottom,
+      height - UI_JOY.bottomMargin - UI_JOY.baseRadius - this.safeBottom - BOTTOM_EXTRA_LIFT,
     );
     this.joyKnob.setPosition(this.joyBase.x, this.joyBase.y);
 
     // Атака — верхняя в группе, навыки веером под ней
     this.attackX = width - UI_ATTACK.rightRoom - safeRight;
-    this.attackY = height - UI_ATTACK.lift - this.safeBottom;
+    this.attackY = height - UI_ATTACK.lift - this.safeBottom - BOTTOM_EXTRA_LIFT;
     this.attackButton.setPosition(this.attackX, this.attackY);
     this.attackZone.setPosition(this.attackX, this.attackY);
     this.attackLabel.setPosition(this.attackX, this.attackY);
@@ -760,7 +761,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Баннер — в верхней трети мира (между верхним HUD и нижним баром)
     const { width, height } = this.scale;
-    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
+    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom - BOTTOM_EXTRA_LIFT;
     const freeTop = this.safeTop + UI_TOP.bannerTopPad;
     const freeBottom = panelTop - UI_TOP.bannerBottomPad;
     const bannerY =
