@@ -4,16 +4,15 @@ body {
   padding: 0;
   width: 100%;
   height: 100%;
-  /* 100dvh — фикс iOS Safari/standalone, где 100% включает зону под тулбаром */
-  /* height: 100dvh; */
+  /* Браузерный Safari: динамический тулбар — dvh корректен */
+  height: 100dvh;
   overflow: hidden;
   /*
    * Фон ВНЕ канваса. В iOS standalone зона home-индикатора (~34px) недостижима
-   * для веб-контента (WebKit bug 254868: нижний safe-area не входит в layout
-   * viewport, а env(safe-area-inset-bottom) в standalone возвращает 0) — туда
-   * канвас Phaser попасть не может в принципе. Ниже канваса остаётся эта
-   * полоса, и её цвет задаётся отсюда: совпадает с backgroundColor игры
-   * (#14141b), иначе на меню видна «чёрная полоса» (#000) на фоне #14141b.
+   * для веб-контента (WebKit bug 254868: env(safe-area-inset-bottom) в
+   * standalone возвращает 0, нижняя зона вне layout viewport) — канвас Phaser
+   * туда попасть не может в принципе. Эта полоса красится отсюда: тот же
+   * цвет, что фон игры (#14141b), иначе виден «шов» на меню и в игре.
    */
   background: #14141b;
   /* viewport-fit=cover уже в meta: канвас уходит под вырез,
@@ -25,42 +24,57 @@ body {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
-  position: fixed;
+
+  /*
+   * БЕЗ position: fixed на корневых элементах: в iOS standalone fixed-элемент
+   * превращается в clipping-box размером с «лежачий» viewport и обрезает низ
+   * (подтверждено на iOS 26 — piclaw docs/PWA.md, «root-body strategy»).
+   * От скролла/резинки защищают overflow:hidden + touch-action:none +
+   * overscroll-behavior:none выше.
+   */
 }
 
+/*
+ * #app — родитель Phaser-канваса. Достаточно 100% от body: высоту экрана
+ * держит сам body (100dvh в браузере / 100vh в standalone ниже). Держать здесь
+ * 100dvh НЕЛЬЗЯ — в standalone dvh ведёт себя как svh и врёт минус safe-area
+ * (WebKit bug 254868), из-за чего канвас выходит короче экрана на полосу снизу.
+ */
 #app {
   width: 100%;
   height: 100%;
-  height: 100dvh;
 }
 
 canvas {
   display: block;
 }
 
-body {
-    height: 100vh;
-    min-height: 100vh;
-}
-
 /*
- * iOS standalone PWA (viewport-fit=cover + black-translucent):
- * WebKit вычитает верхний safe-area-inset из height:100%, 100vh, 100svh И
- * 100dvh — контейнер выходит короче реального экрана на высоту статус-бара.
- * Только 100lvh (large viewport height) даёт полную высоту физического экрана.
+ * iOS standalone PWA (viewport-fit=cover + black-translucent).
  *
- * Обычный Safari и Android этот media query не матчатся (display-mode: browser
- * / fullscreen) и продолжают использовать правила выше — их поведение не меняется.
+ * WebKit bug 254868 (воспроизводится минимум до iOS 18.3): в установленных
+ * веб-приложениях 100svh, -webkit-fill-available и visualViewport.height
+ * отчитываются МИНУС safe-area-inset. Подтверждённо рабочий юнит для полного
+ * экрана в standalone — 100vh (включает safe-area): он же рекомендован в
+ * openchamber#2287 (root cause: html/body на height:100%), на Apple-форумах
+ * (#803987) и в гайдах по fullscreen-играм на iPhone (100vh — единственный
+ * юнит, работающий с холодного старта; dvh не инициализирован, пока viewport
+ * не «потревожен»). 100lvh в standalone равен 100vh по спецификации — строка
+ * выше оставлена как страховка. Обычный Safari и Android этот media query
+ * не матчатся (display-mode: browser) — их поведение не меняется.
  *
  * Зона home-индикатора снизу iOS резервирует вне CSS viewport: игровая область
- * туда попасть не может, она остаётся просто фоном #000. safe-area-inset-bottom
- * здесь НИЧЕМ не компенсируем (никаких padding-bottom на контейнерах) —
- * отступы для HUD поверх канваса считает JS в UIScene.layoutHud().
+ * туда попасть не может, она остаётся просто фоном цвета игры (#14141b).
+ * safe-area-inset-bottom здесь НИЧЕМ не компенсируем (никаких padding-bottom
+ * на контейнерах) — отступы для HUD поверх канваса считает JS
+ * в UIScene.layoutHud() (с fallback-измерением для standalone, где env() врёт).
  */
-/* @media (display-mode: standalone) {
+@media (display-mode: standalone) {
   html,
   body,
   #app {
     height: 100lvh;
+    height: 100vh;
   }
-} */
+}
+

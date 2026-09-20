@@ -280,10 +280,11 @@ export default class UIScene extends Phaser.Scene {
     this.safeBottom = safe.bottom;
     const safeRight = safe.right;
 
-    // Низ — глухой бар фиксированной высоты (камера мира обрезана по его верху,
-    // см. GameScene). Фон дотянут до края экрана, чтобы зона Home Indicator была
-    // перекрыта баром, а не пустотой; игровая область от инсета не зависит.
-    const panelTop = height - CONTROLS_HEIGHT;
+    // Низ — глухой бар (камера мира обрезана по его верху, см. GameScene).
+    // Бар приподнят на нижний safe-area (в standalone env() врёт и возвращает
+    // 0 — поэтому в safeArea.ts есть fallback-измерение), фон бара при этом
+    // дотянут до края канваса, чтобы зона Home Indicator была перекрыта им.
+    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
     this.panelGfx.clear();
     this.panelGfx.fillStyle(0x0a0a10, 0.92);
     this.panelGfx.fillRect(0, panelTop, width, height - panelTop);
@@ -759,7 +760,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Баннер — в верхней трети мира (между верхним HUD и нижним баром)
     const { width, height } = this.scale;
-    const panelTop = height - CONTROLS_HEIGHT;
+    const panelTop = height - CONTROLS_HEIGHT - this.safeBottom;
     const freeTop = this.safeTop + UI_TOP.bannerTopPad;
     const freeBottom = panelTop - UI_TOP.bannerBottomPad;
     const bannerY =

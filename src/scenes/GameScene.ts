@@ -20,6 +20,7 @@ import Crystal from '../entities/Crystal';
 import Enemy from '../entities/Enemy';
 import Player from '../entities/Player';
 import Shop from '../entities/Shop';
+import { getSafeAreaInsets } from '../utils/safeArea';
 
 /** Летящий заряд стрелка */
 interface EnemyShot {
@@ -412,13 +413,15 @@ export default class GameScene extends Phaser.Scene {
 
   /**
    * Viewport камеры — весь экран минус глухой нижний бар (мир под бар не заходит).
-   * Зона Home Indicator бар НЕ уменьшает: она перекрыта фоном бара, а управление
-   * приподнято над ней в UIScene. Иначе в standalone игра теряла бы ~34px высоты
-   * против Safari (там нижний инсет = 0) — та самая «лишняя полоса» снизу.
+   * Нижний safe-area (home-индикатор) учитывается: в Safari его отдаёт env(),
+   * а в standalone env() врёт (0px, WebKit bug 254868) — его компенсирует
+   * fallback-измерение в safeArea.ts. Фон бара в UIScene при этом дотянут до
+   * края канваса, так что зона индикатора перекрыта баром, а не пустотой.
    */
   private positionCameraViewport(): void {
     const { width, height } = this.scale;
-    this.cameras.main.setViewport(0, 0, width, height - CONTROLS_HEIGHT);
+    const safeBottom = getSafeAreaInsets().bottom;
+    this.cameras.main.setViewport(0, 0, width, height - CONTROLS_HEIGHT - safeBottom);
   }
 
   /** Компенсация границ при zoom != 1, чтобы камера не выходила за карту */

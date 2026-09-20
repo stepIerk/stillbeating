@@ -55,6 +55,32 @@ function parsePx(value: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Fallback для iOS standalone, где env(safe-area-inset-bottom) врёт и
+ * возвращает 0 (WebKit bug 254868; также подтверждено в next.js discussion
+ * #81264 и piclaw docs/PWA.md). «Лежачий» viewport (svh/dvh/visualViewport)
+ * отчитывает высоту МИНУС safe-area — измеряем дефицит между полной высотой
+ * экрана (screen) и высотой визуального viewport и считаем его нижним инсетом.
+ * Возвращаем только разумные значения (высота home-индикатора ~34px).
+ */
+function measureStandaloneBottomInset(): number {
+  try {
+    const standalone = (navigator as Navigator & { standalone?: boolean }).standalone;
+    if (!standalone) return 0;
+    const vv = window.visualViewport;
+    if (!vv) return 0;
+    // screen.width/height на iOS не вращаются — ориентируемся по innerWidth/Height
+    const portrait = window.innerWidth < window.innerHeight;
+    const fullHeight = portrait ? window.screen.height : window.screen.width;
+    const reportedHeight = portrait ? vv.height : vv.width;
+    const deficit = Math.round(fullHeight - reportedHeight);
+    if (deficit <= 0 || deficit > 150) return 0;
+    return deficit;
+  } catch {
+    return 0;
+  }
+}
+
 export function getSafeAreaInsets(): SafeAreaInsets {
   try {
     if (typeof document === 'undefined' || !document.body) {
@@ -75,6 +101,11 @@ export function getSafeAreaInsets(): SafeAreaInsets {
       left: parsePx(cs.paddingLeft),
     };
     probe.remove();
+    // iOS standalone: env(safe-area-inset-bottom) врёт (0px) — берём измеренный
+    // дефицит viewport. Без этого управление уезжает под home-индикатор.
+    if (result.bottom === 0) {
+      result.bottom = measureStandaloneBottomInset();
+    }
     return result;
   } catch {
     return ZERO;
