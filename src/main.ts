@@ -16,6 +16,8 @@ const config: Phaser.Types.Core.GameConfig = {
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    // Стартовый размер не важен: в RESIZE ScaleManager при boot и каждом
+    // resize берёт размер родителя (#app) через getBoundingClientRect.
     width: '100%',
     height: '100%',
   },
