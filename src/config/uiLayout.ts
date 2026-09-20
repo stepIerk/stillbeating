@@ -100,4 +100,4 @@ export const UI_SKILLS = {
  * home-индикатора даже там, где измеренный инсет чуть занижен.
  * Увеличь, если низ всё ещё прячется «под телефон».
  */
-export const BOTTOM_EXTRA_LIFT = 35;
+export const BOTTOM_EXTRA_LIFT = 50;
