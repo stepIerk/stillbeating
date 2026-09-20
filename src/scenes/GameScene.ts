@@ -5,7 +5,9 @@ import {
   DROPS,
   ENEMY_TIERS,
   GOLD,
+  PLAYER_ATTACK_FX,
   PLAYER_STATS,
+  PLAYER_VISUALS,
   SHOP,
   SHOP_LEVELS,
   SKILLS,
@@ -32,6 +34,29 @@ interface EnemyShot {
   bornAt: number;
   ttl: number;
 }
+
+/**
+ * Сфера атаки игрока: летит от героя, доворачивается к цели и разлетается
+ * брызгами при попадании или на пределе радиуса атаки.
+ */
+interface PlayerShot {
+  image: Phaser.GameObjects.Image;
+  /** Текущее направление полёта (единичный вектор) */
+  dir: Phaser.Math.Vector2;
+  speed: number;
+  /** Сколько уже пролетела (px) */
+  traveled: number;
+  /** Радиус атаки на момент выстрела (px) */
+  maxDistance: number;
+  /** Цель сферы (null — выстрел в пустоту) */
+  target: Enemy | null;
+  damage: number;
+  isCrit: boolean;
+  /** Сфера летит в лавку: попадёт — откроет магазин */
+  hitShop: boolean;
+  /** Когда последний раз оставлен отпечаток «хвоста» */
+  lastTrailAt: number;
+}
 import RunState from '../state/RunState';
 import { rollDrops } from '../systems/Drops';
 import { computeStats } from '../systems/DerivedStats';
@@ -57,8 +82,8 @@ const GAME_OVER_DELAY = 4200;
 function computeZoom(width: number, height: number): number {
   const minSide = Math.min(width, height);
   if (minSide >= 1100) return 1;
-  if (minSide >= 800) return 0.7;
-  return 0.55;
+  if (minSide >= 800) return 0.5;
+  return 0.4;
 }
 
 export default class GameScene extends Phaser.Scene {
@@ -92,6 +117,9 @@ export default class GameScene extends Phaser.Scene {
   /** Заряды стрелков: летящие снаряды с уроном по игроку/кристаллу */
   private enemyShots: EnemyShot[] = [];
 
+  /** Сферы атаки игрока: летят от героя и разлетаются брызгами */
+  private playerShots: PlayerShot[] = [];
+
   private readonly zeroDir = new Phaser.Math.Vector2(0, 0);
 
   constructor() {
@@ -109,6 +137,7 @@ export default class GameScene extends Phaser.Scene {
     this.gates = [];
     this.shopOffers = [];
     this.enemyShots = [];
+    this.playerShots = [];
     this.run = new RunState();
     // Поле-инициализация срабатывает только при первом конструировании сцены,
     // поэтому при повторном забеге сбрасываем накопленное состояние вручную
@@ -155,12 +184,45 @@ export default class GameScene extends Phaser.Scene {
     }
     const g = this.make.graphics({ x: 0, y: 0 }, false);
 
-    // Игрок — круг со «зрачком»
-    g.fillStyle(0x4fc3f7, 1);
-    g.fillCircle(30, 30, 28);
+    // Игрок собран из простых фигур (см. entities/Player):
+    // тело — белый круг, поверх него отдельные лицо-овал и два овала-глаза.
+    const bodyR = PLAYER_VISUALS.bodyRadius;
+    const bodySize = (bodyR + 2) * 2;
+    const bodyC = bodySize / 2;
     g.fillStyle(0xffffff, 1);
-    g.fillCircle(38, 30, 9);
-    g.generateTexture('player', 60, 60);
+    g.fillCircle(bodyC, bodyC, bodyR);
+    g.lineStyle(2, 0xdcdcdc, 1);
+    g.strokeCircle(bodyC, bodyC, bodyR - 1);
+    g.generateTexture('player', bodySize, bodySize);
+    g.clear();
+
+    // Лицо игрока — чёрный овал, чуть сплюснутый сверху и снизу
+    const faceW = PLAYER_VISUALS.faceRadiusX * 2;
+    const faceH = PLAYER_VISUALS.faceRadiusY * 2;
+    g.fillStyle(0x111111, 1);
+    g.fillEllipse(faceW / 2, faceH / 2, faceW, faceH);
+    g.generateTexture('player-face', faceW, faceH);
+    g.clear();
+
+    // Глаз игрока — белый овал, вытянутый по вертикали
+    const eyeW = PLAYER_VISUALS.eyeRadiusX * 2;
+    const eyeH = PLAYER_VISUALS.eyeRadiusY * 2;
+    g.fillStyle(0xffffff, 1);
+    g.fillEllipse(eyeW / 2, eyeH / 2, eyeW, eyeH);
+    g.generateTexture('player-eye', eyeW, eyeH);
+    g.clear();
+
+    // Снаряд атаки игрока — белая сфера: свечение слоями от края к ядру
+    const shotR = PLAYER_ATTACK_FX.shotRadius;
+    g.fillStyle(0xffffff, 0.1);
+    g.fillCircle(shotR, shotR, shotR);
+    g.fillStyle(0xffffff, 0.22);
+    g.fillCircle(shotR, shotR, shotR * 0.72);
+    g.fillStyle(0xffffff, 0.55);
+    g.fillCircle(shotR, shotR, shotR * 0.48);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(shotR, shotR, shotR * 0.27);
+    g.generateTexture('player-shot', shotR * 2, shotR * 2);
     g.clear();
 
     // Кристалл — ромб с бликом
@@ -430,10 +492,11 @@ export default class GameScene extends Phaser.Scene {
   /** Компенсация границ при zoom != 1, чтобы камера не выходила за карту */
   private applyCameraBounds(): void {
     const cam = this.cameras.main;
-    const zoom = cam.zoom;
-    const extraX = (1 / zoom - 1) * this.scale.width;
-    const extraY = (1 / zoom - 1) * this.scale.height;
-    cam.setBounds(-extraX / 2, -extraY / 2, WORLD_SIZE + extraX, WORLD_SIZE + extraY);
+    // const zoom = cam.zoom;
+    // const extraX = (1 / zoom - 1) * this.scale.width;
+    // const extraY = (1 / zoom - 1) * this.scale.height;
+    // cam.setBounds(-extraX / 2, -extraY / 2, WORLD_SIZE + extraX, WORLD_SIZE + extraY);
+    cam.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
   }
 
   private handleResize(): void {
@@ -461,6 +524,8 @@ export default class GameScene extends Phaser.Scene {
   /** Игрок ударил по лавке: игра на паузе, открывается окно покупок */
   private openShop(): void {
     this.shopOffers = pickShopOffers(this.run);
+    // Игра встанет на паузу — летящие сферы не должны замереть в воздухе
+    this.clearPlayerShots();
     this.setPaused(true);
     this.emitShopOffers();
   }
@@ -640,7 +705,10 @@ export default class GameScene extends Phaser.Scene {
 
   // ---------- Бой ----------
 
-  /** Атака игрока: удар направлен в ближайшего врага в радиусе */
+  /**
+   * Атака игрока: белая сфера летит в ближайшего врага в радиусе атаки.
+   * Урон наносится в момент попадания сферы (см. updatePlayerShots).
+   */
   private tryPlayerAttack(now: number): void {
     if (!this.player.canAttack(now)) {
       return;
@@ -649,18 +717,20 @@ export default class GameScene extends Phaser.Scene {
 
     const target = this.findNearestEnemy(this.player.x, this.player.y, this.player.attackRange);
 
-    // Врагов рядом нет — удар по лавке открывает магазин
+    // Врагов рядом нет: сфера летит вперёд, а удар по лавке открывает магазин
     if (!target) {
       if (this.isNearShop()) {
         const toShop = new Phaser.Math.Vector2(
           this.shop.x - this.player.x,
           this.shop.y - this.player.y,
         ).normalize();
-        this.drawAttackArc(toShop);
-        this.openShop();
+        this.player.faceAttack(toShop, now);
+        this.spawnPlayerShot(toShop, null, 0, false, true);
         return;
       }
-      this.drawAttackArc(this.player.facing.clone());
+      const dir = this.player.facing.clone();
+      this.player.faceAttack(dir, now);
+      this.spawnPlayerShot(dir, null, 0, false, false);
       return;
     }
 
@@ -668,13 +738,126 @@ export default class GameScene extends Phaser.Scene {
       target.x - this.player.x,
       target.y - this.player.y,
     ).normalize();
-    this.drawAttackArc(dir);
+    // Смотрим в сторону атаки: у неё приоритет над направлением движения
+    this.player.faceAttack(dir, now);
 
     // Крит: шанс от удачи, урон × множитель
     const isCrit = Math.random() < this.player.critChance;
     const damage = isCrit
       ? Math.round(this.player.effectiveDamage(now) * this.player.critMultiplier)
       : this.player.effectiveDamage(now);
+
+    this.spawnPlayerShot(dir, target, damage, isCrit, false);
+  }
+
+  /** Запуск сферы атаки из тела игрока в заданном направлении */
+  private spawnPlayerShot(
+    dir: Phaser.Math.Vector2,
+    target: Enemy | null,
+    damage: number,
+    isCrit: boolean,
+    hitShop: boolean,
+  ): void {
+    // Сфера появляется на краю тела героя, а не в его центре
+    const head = PLAYER_STATS.radius - 6;
+    const image = this.add
+      .image(this.player.x + dir.x * head, this.player.y + dir.y * head, 'player-shot')
+      .setDepth(13)
+      .setScale(0.45);
+    this.tweens.add({ targets: image, scale: 1, duration: 90, ease: 'Quad.easeOut' });
+    // Лёгкая отдача: герой подаётся назад от направления выстрела
+    this.player.attackRecoil(dir);
+
+    this.playerShots.push({
+      image,
+      dir: dir.clone().normalize(),
+      // Скорость такая, что всю дистанцию атаки сфера пролетает за flightMs
+      speed: this.player.attackRange / (PLAYER_ATTACK_FX.flightMs / 1000),
+      traveled: head,
+      maxDistance: this.player.attackRange,
+      target,
+      damage,
+      isCrit,
+      hitShop,
+      lastTrailAt: this.time.now,
+    });
+  }
+
+  /** Полёт сфер: самонаведение, попадание в цель/лавку и взрыв брызгами */
+  private updatePlayerShots(now: number, deltaMs: number): void {
+    const dt = deltaMs / 1000;
+
+    for (const shot of this.playerShots) {
+      if (!shot.image.active) {
+        continue;
+      }
+
+      // Лёгкое самонаведение: доворачиваем сферу к цели, чтобы попадать в бегущих
+      if (shot.target && !shot.target.isDead) {
+        const want = Math.atan2(shot.target.y - shot.image.y, shot.target.x - shot.image.x);
+        const current = Math.atan2(shot.dir.y, shot.dir.x);
+        const maxTurn = PLAYER_ATTACK_FX.homingTurn * dt;
+        const turn = Phaser.Math.Clamp(Phaser.Math.Angle.Wrap(want - current), -maxTurn, maxTurn);
+        shot.dir.setToPolar(current + turn, 1);
+      }
+
+      const step = shot.speed * dt;
+      shot.image.x += shot.dir.x * step;
+      shot.image.y += shot.dir.y * step;
+      shot.traveled += step;
+
+      // Попадание в цель
+      const target = shot.target;
+      if (
+        target &&
+        !target.isDead &&
+        Phaser.Math.Distance.Between(shot.image.x, shot.image.y, target.x, target.y) <=
+          PLAYER_ATTACK_FX.hitRadius + target.tier.radius
+      ) {
+        this.splashAt(shot.image.x, shot.image.y);
+        this.applyPlayerHit(target, shot.dir, shot.damage, shot.isCrit);
+        shot.image.destroy();
+        continue;
+      }
+
+      // Попадание в лавку: сфера гаснет, магазин открывается
+      if (
+        shot.hitShop &&
+        Phaser.Math.Distance.Between(shot.image.x, shot.image.y, this.shop.x, this.shop.y) <= SHOP.glowRadius
+      ) {
+        this.splashAt(this.shop.x, this.shop.y - 24);
+        shot.image.destroy();
+        this.openShop();
+        continue;
+      }
+
+      // Радиус атаки закончился — сфера разлетается в воздухе
+      if (shot.traveled >= shot.maxDistance) {
+        this.splashAt(shot.image.x, shot.image.y);
+        shot.image.destroy();
+        continue;
+      }
+
+      // Отпечаток «хвоста» — сфера выглядит как комета
+      if (now - shot.lastTrailAt >= PLAYER_ATTACK_FX.trailEveryMs) {
+        shot.lastTrailAt = now;
+        this.spawnShotTrail(shot.image.x, shot.image.y);
+      }
+    }
+
+    this.playerShots = this.playerShots.filter((shot) => shot.image.active);
+  }
+
+  /** Урон сферы по врагу: цифры урона, микроотброс и обработка смерти */
+  private applyPlayerHit(
+    target: Enemy,
+    dir: Phaser.Math.Vector2,
+    damage: number,
+    isCrit: boolean,
+  ): void {
+    if (target.isDead) {
+      return;
+    }
 
     const died = target.takeDamage(damage);
     showFloatingText(
@@ -692,6 +875,52 @@ export default class GameScene extends Phaser.Scene {
     if (died) {
       this.onEnemyKilled(target);
     }
+  }
+
+  /** Взрыв сферы: мягкая белая вспышка и разлетающиеся брызги */
+  private splashAt(x: number, y: number): void {
+    // Мягкая вспышка — та же текстура сферы, но крупнее, ярче и быстро гаснет
+    const flash = this.add
+      .image(x, y, 'player-shot')
+      .setDepth(112)
+      .setScale(0.6)
+      .setAlpha(0.85);
+    this.tweens.add({
+      targets: flash,
+      scale: (PLAYER_ATTACK_FX.splashSpread / PLAYER_ATTACK_FX.shotRadius) * 0.8,
+      alpha: 0,
+      duration: 180,
+      ease: 'Quad.easeOut',
+      onComplete: () => flash.destroy(),
+    });
+
+    // Брызги-капли
+    burst(this, x, y, 0xffffff, PLAYER_ATTACK_FX.splashCount, PLAYER_ATTACK_FX.splashSpread, 5);
+  }
+
+  /** Отпечаток «хвоста» сферы: уменьшается и гаснет */
+  private spawnShotTrail(x: number, y: number): void {
+    const ghost = this.add
+      .image(x, y, 'player-shot')
+      .setDepth(12)
+      .setScale(Phaser.Math.FloatBetween(0.34, 0.52))
+      .setAlpha(0.6);
+    this.tweens.add({
+      targets: ghost,
+      scale: 0.08,
+      alpha: 0,
+      duration: PLAYER_ATTACK_FX.trailFadeMs,
+      ease: 'Quad.easeOut',
+      onComplete: () => ghost.destroy(),
+    });
+  }
+
+  /** Убрать все летящие сферы игрока (пауза, конец забега) */
+  private clearPlayerShots(): void {
+    for (const shot of this.playerShots) {
+      shot.image.destroy();
+    }
+    this.playerShots = [];
   }
 
   /** Применение навыка из кнопки-креста (вызывается из UIScene) */
@@ -1019,24 +1248,6 @@ export default class GameScene extends Phaser.Scene {
     return best;
   }
 
-  /** Визуал удара: короткая дуга в сторону цели */
-  private drawAttackArc(dir: Phaser.Math.Vector2): void {
-    const angle = Math.atan2(dir.y, dir.x);
-    const arc = this.add.graphics({ x: this.player.x, y: this.player.y });
-    arc.fillStyle(0x4fc3f7, 0.35);
-    arc.slice(0, 0, this.player.attackRange * 0.55, angle - 0.55, angle + 0.55, false);
-    arc.fillPath();
-    arc.setDepth(11);
-
-    this.tweens.add({
-      targets: arc,
-      alpha: 0,
-      duration: 170,
-      onComplete: () => arc.destroy(),
-    });
-  }
-
-  /** Враг дотянулся до цели: урон игроку или кристаллу */
   /** Выстрел стрелка: заряд летит в текущую цель (игрок или кристалл) */
   private spawnEnemyShot(enemy: Enemy, now: number): void {
     const tier = enemy.tier;
@@ -1201,6 +1412,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.isGameOver = true;
     this.setPaused(true);
+    this.clearPlayerShots();
 
     this.crystal.playDestroyed();
     burst(this, this.crystal.x, this.crystal.y, 0x4dd0e1, 16);
@@ -1463,13 +1675,14 @@ export default class GameScene extends Phaser.Scene {
       }
     } else {
       this.updatePlayerDash(time, delta);
-      this.player.moveWithInput(ui?.moveVector ?? this.zeroDir);
+      this.player.moveWithInput(ui?.moveVector ?? this.zeroDir, time);
       if (ui?.attackHeld) {
         this.tryPlayerAttack(time);
       }
     }
     this.player.regenTick(delta, time);
-    this.player.updateVisuals(time);
+    this.player.updateVisuals(time, delta);
+    this.updatePlayerShots(time, delta);
 
     // Враги: идут к цели (игрок или кристалл) и бьют в упор
     const frozen = time < this.freezeUntil;

@@ -33,12 +33,14 @@ export function burst(
   y: number,
   color: number,
   count = 6,
+  spread = 46,
+  sizeMax = 6,
 ): void {
   for (let i = 0; i < count; i++) {
     const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-    const dist = Phaser.Math.Between(18, 46);
+    const dist = Phaser.Math.Between(Math.round(spread * 0.4), spread);
     const dot = scene.add
-      .circle(x, y, Phaser.Math.Between(3, 6), color, 0.9)
+      .circle(x, y, Phaser.Math.Between(3, sizeMax), color, 0.9)
       .setDepth(111);
     scene.tweens.add({
       targets: dot,

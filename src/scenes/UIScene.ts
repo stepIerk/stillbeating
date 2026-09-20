@@ -287,7 +287,7 @@ export default class UIScene extends Phaser.Scene {
     // канваса, чтобы зона Home Indicator была перекрыта им.
     const panelTop = height - CONTROLS_HEIGHT - this.safeBottom - BOTTOM_EXTRA_LIFT;
     this.panelGfx.clear();
-    this.panelGfx.fillStyle(0x0a0a10, 0.92);
+    this.panelGfx.fillStyle(0x0a0a10, 0.4);
     this.panelGfx.fillRect(0, panelTop, width, height - panelTop);
     this.panelGfx.lineStyle(2, 0xffffff, 0.12);
     this.panelGfx.lineBetween(0, panelTop, width, panelTop);
