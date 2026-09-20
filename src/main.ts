@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import StartScene from './scenes/StartScene';
 import GameScene from './scenes/GameScene';
 import UIScene from './scenes/UIScene';
+import { VOID_CSS } from './render/palette';
 import { installViewportDiagnostics } from './utils/safeArea';
 
 installViewportDiagnostics();
@@ -17,7 +18,7 @@ installViewportDiagnostics();
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'app',
-  backgroundColor: '#14141b',
+  backgroundColor: VOID_CSS,
   // RESIZE: канвас занимает весь экран устройства (важно для мобильных),
   // а камера следит за игроком по карте, которая больше экрана
 

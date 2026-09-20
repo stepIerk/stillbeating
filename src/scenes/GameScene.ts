@@ -14,6 +14,7 @@ import {
   WALL_THICKNESS,
   WEAPONS,
   WORLD_SIZE,
+  WORLD_VISUALS,
   type AttrId,
   type EnemyTierId,
   type SkillDef,
@@ -23,6 +24,8 @@ import Crystal from '../entities/Crystal';
 import Enemy from '../entities/Enemy';
 import Player from '../entities/Player';
 import Shop from '../entities/Shop';
+import { BODY, VESSEL, VOID_CSS } from '../render/palette';
+import { buildWorldTextures } from '../render/textures';
 import { getSafeAreaInsets } from '../utils/safeArea';
 
 /** Летящий заряд стрелка */
@@ -150,7 +153,7 @@ export default class GameScene extends Phaser.Scene {
     // после game-over физику нужно явно вернуть в рабочее состояние.
     this.physics.world.resume();
 
-    this.cameras.main.setBackgroundColor('#14141b');
+    this.cameras.main.setBackgroundColor(VOID_CSS);
 
     this.uiSceneRef = this.scene.get('UI');
 
@@ -177,12 +180,20 @@ export default class GameScene extends Phaser.Scene {
       this.scene.stop('UI');
     });
   }
-/** Текстуры из простых фигур: игрок, кристалл, монета, тиры врагов */
+/** Текстуры из простых фигур: мир-плоть, игрок, кристалл, лут и тиры врагов */
   private createTextures(): void {
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
+
+    // Мир внутри бога: тайлы плоти, вен и стен — у них свой ключ-признак,
+    // поэтому проверяем их отдельно от фигур персонажей и врагов.
+    if (!this.textures.exists('floor-cells')) {
+      buildWorldTextures(g);
+    }
+
     if (this.textures.exists('player')) {
+      g.destroy();
       return;
     }
-    const g = this.make.graphics({ x: 0, y: 0 }, false);
 
     // Игрок собран из простых фигур (см. entities/Player):
     // тело — белый круг, поверх него отдельные лицо-овал и два овала-глаза.
@@ -354,17 +365,23 @@ export default class GameScene extends Phaser.Scene {
     this.player = new Player(this, this.crystalSpawn.x, this.crystalSpawn.y);
   }
 
-  /** Карта: сетка, стены-коробка и ворота спавна врагов */
+  /** Карта внутри бога: пол-ткань с венами, мышцы-стены и ворота-«раны» */
   private buildWorld(): void {
     this.physics.world.setBounds(0, 0, WORLD_SIZE, WORLD_SIZE);
 
-    const grid = this.add.graphics();
-    grid.lineStyle(1, 0xffffff, 0.05);
-    for (let i = 0; i <= WORLD_SIZE; i += 120) {
-      grid.lineBetween(i, 0, i, WORLD_SIZE);
-      grid.lineBetween(0, i, WORLD_SIZE, i);
-    }
-    grid.setDepth(-2);
+    // Пол: бесшовные тайлы плоти с клетками и поверх — слой вен
+    this.add
+      .tileSprite(0, 0, WORLD_SIZE, WORLD_SIZE, 'floor-cells')
+      .setOrigin(0)
+      .setDepth(-4);
+    this.add
+      .tileSprite(0, 0, WORLD_SIZE, WORLD_SIZE, 'floor-veins')
+      .setOrigin(0)
+      .setTileScale(WORLD_VISUALS.veinScale)
+      .setAlpha(WORLD_VISUALS.veinAlpha)
+      .setDepth(-3);
+
+    this.drawVessels();
 
     const half = WALL_THICKNESS / 2;
     const wallSpecs = [
@@ -375,9 +392,17 @@ export default class GameScene extends Phaser.Scene {
     ];
 
     this.walls = wallSpecs.map((s) => {
-      const wall = this.add.rectangle(s.x, s.y, s.w, s.h, 0x3a3a44);
+      // Прямоугольник остаётся только физическим телом — поверх рисуем тайл мышцы
+      const wall = this.add.rectangle(s.x, s.y, s.w, s.h, BODY.wallBase);
       wall.setDepth(-1);
+      wall.setVisible(false);
       this.physics.add.existing(wall, true);
+
+      // Волокна мышцы идут вдоль стены, поэтому тайл зависит от ориентации
+      const wallFlesh = s.w > s.h ? 'wall-flesh-h' : 'wall-flesh-v';
+      this.add.tileSprite(s.x, s.y, s.w, s.h, wallFlesh).setDepth(-1);
+      this.drawWallMembrane(s);
+
       return wall;
     });
 
@@ -388,16 +413,11 @@ export default class GameScene extends Phaser.Scene {
       new Phaser.Math.Vector2(WORLD_SIZE - WALL_THICKNESS - GATE_OFFSET, WORLD_SIZE / 2),
     ];
 
-    const gateTiles = [
-      { x: WORLD_SIZE / 2, y: half, w: 180, h: WALL_THICKNESS },
-      { x: half, y: WORLD_SIZE / 2, w: WALL_THICKNESS, h: 180 },
-      { x: WORLD_SIZE - half, y: WORLD_SIZE / 2, w: WALL_THICKNESS, h: 180 },
-    ];
-    for (const t of gateTiles) {
-      this.add.rectangle(t.x, t.y, t.w, t.h, 0x120b0b, 0.85).setDepth(-1);
-    }
     for (const gate of this.gates) {
-      const glow = this.add.circle(gate.x, gate.y, 46, 0xff5252, 0.1).setDepth(4);
+      // Верхние ворота стоят на горизонтальной стене, боковые — на вертикальной
+      this.drawGatePore(gate, gate.x === WORLD_SIZE / 2);
+
+      const glow = this.add.circle(gate.x, gate.y, WORLD_VISUALS.poreRadius, VESSEL.wound, 0.1).setDepth(4);
       this.tweens.add({
         targets: glow,
         alpha: 0.32,
@@ -406,6 +426,144 @@ export default class GameScene extends Phaser.Scene {
         yoyo: true,
         repeat: -1,
       });
+    }
+  }
+
+  /** Крупные сосуды: тянутся от сердца к верхней части тела бога */
+  private drawVessels(): void {
+    const g = this.add.graphics().setDepth(-2);
+    const heartX = WORLD_SIZE / 2;
+    const heartY = WORLD_SIZE - WALL_THICKNESS - CRYSTAL_STATS.offsetFromBottom;
+
+    for (let i = 0; i < WORLD_VISUALS.vesselCount; i++) {
+      const endX = Phaser.Math.Between(WALL_THICKNESS * 2, WORLD_SIZE - WALL_THICKNESS * 2);
+      const endY = Phaser.Math.Between(WALL_THICKNESS * 2, Math.round(WORLD_SIZE * 0.42));
+      this.strokeVessel(
+        g,
+        heartX + Phaser.Math.Between(-70, 70),
+        heartY,
+        endX,
+        endY,
+        WORLD_VISUALS.vesselWidth,
+        WORLD_VISUALS.vesselBranchDepth,
+      );
+    }
+  }
+
+  /** Один сосуд: толстая артерия со светлым бликом и ответвлением */
+  private strokeVessel(
+    g: Phaser.GameObjects.Graphics,
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    width: number,
+    depth: number,
+  ): void {
+    const steps = 16;
+    const sway = Phaser.Math.Between(50, 170) * (Math.random() < 0.5 ? -1 : 1);
+    const points: Array<{ x: number; y: number }> = [];
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const bulge = Math.sin(t * Math.PI);
+      points.push({
+        x: startX + (endX - startX) * t + bulge * sway,
+        y: startY + (endY - startY) * t - bulge * width * 2,
+      });
+    }
+
+    const stroke = (color: number, alpha: number, lineWidth: number) => {
+      g.lineStyle(lineWidth, color, alpha);
+      g.beginPath();
+      g.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        g.lineTo(points[i].x, points[i].y);
+      }
+      g.strokePath();
+    };
+
+    stroke(VESSEL.artery, 0.85, width);
+    stroke(VESSEL.veinHi, 0.3, Math.max(1, width * 0.35));
+
+    if (depth > 0) {
+      const branch = points[Math.round(points.length * 0.55)];
+      this.strokeVessel(
+        g,
+        branch.x,
+        branch.y,
+        branch.x + Phaser.Math.Between(-280, 280),
+        branch.y - Phaser.Math.Between(120, 340),
+        Math.max(3, width * 0.45),
+        depth - 1,
+      );
+    }
+  }
+
+  /** Светлая мембрана по внутреннему краю стены: отделяет плоть от прохода */
+  private drawWallMembrane(spec: { x: number; y: number; w: number; h: number }): void {
+    const g = this.add.graphics().setDepth(-1);
+    const inset = WORLD_VISUALS.wallMembraneInset;
+    g.lineStyle(3, BODY.wallMembrane, WORLD_VISUALS.wallMembraneAlpha);
+
+    if (spec.w > spec.h) {
+      const y = spec.y < WORLD_SIZE / 2 ? spec.y + spec.h / 2 - inset : spec.y - spec.h / 2 + inset;
+      g.lineBetween(0, y, WORLD_SIZE, y);
+    } else {
+      const x = spec.x < WORLD_SIZE / 2 ? spec.x + spec.w / 2 - inset : spec.x - spec.w / 2 + inset;
+      g.lineBetween(x, 0, x, WORLD_SIZE);
+    }
+  }
+
+  /**
+   * Ворота-«рана»: мягкий овальный рот в стене и яма-пора на полу перед ним.
+   * Никаких прямоугольников — только вложенные овалы и круги.
+   */
+  private drawGatePore(gate: Phaser.Math.Vector2, horizontal: boolean): void {
+    const r = WORLD_VISUALS.poreRadius;
+    const g = this.add.graphics().setDepth(-1);
+    const wallHalf = WALL_THICKNESS / 2;
+
+    // Рот в стене: вложенные овалы дают мягкий край, последний — самый тёмный
+    const mouthX = horizontal ? gate.x : gate.x < WORLD_SIZE / 2 ? wallHalf : WORLD_SIZE - wallHalf;
+    const mouthY = horizontal ? wallHalf : gate.y;
+    const along = WORLD_VISUALS.poreMouthLength;
+    const across = WALL_THICKNESS * 2.1;
+    for (let i = 0; i < WORLD_VISUALS.poreMouthLayers; i++) {
+      const k = 1 - i * 0.14;
+      g.fillStyle(VESSEL.woundDeep, 0.2 + i * 0.2);
+      if (horizontal) {
+        g.fillEllipse(mouthX, mouthY, along * k, across * k);
+      } else {
+        g.fillEllipse(mouthX, mouthY, across * k, along * k);
+      }
+    }
+
+    // Яма-пора на полу перед воротами: провал и кольца раны
+    g.fillStyle(VESSEL.woundDeep, 1);
+    g.fillCircle(gate.x, gate.y, r);
+
+    for (let i = 0; i < WORLD_VISUALS.poreRings; i++) {
+      const k = 1 - i / (WORLD_VISUALS.poreRings + 1);
+      g.lineStyle(3 - i, VESSEL.wound, 0.5 - i * 0.12);
+      g.strokeCircle(gate.x, gate.y, r * k);
+    }
+
+    // Жилы, стягивающиеся к ране: ломаные, а не прямые спицы
+    for (let i = 0; i < WORLD_VISUALS.poreVeins; i++) {
+      const angle = (i / WORLD_VISUALS.poreVeins) * Math.PI * 2 + 0.4;
+      const length = Phaser.Math.Between(Math.round(r * 1.2), Math.round(r * 2.2));
+      const bend = Phaser.Math.FloatBetween(-0.4, 0.4);
+
+      g.lineStyle(2, VESSEL.vein, 0.5);
+      g.beginPath();
+      g.moveTo(gate.x, gate.y);
+      for (let s = 1; s <= 3; s++) {
+        const k = s / 3;
+        const a = angle + bend * k;
+        g.lineTo(gate.x + Math.cos(a) * length * k, gate.y + Math.sin(a) * length * k);
+      }
+      g.strokePath();
     }
   }
 
