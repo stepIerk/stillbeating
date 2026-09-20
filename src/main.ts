@@ -7,12 +7,20 @@ import { installViewportDiagnostics } from './utils/safeArea';
 
 installViewportDiagnostics();
 
+const getViewportSize = () => ({
+    width: window.innerWidth,
+    height: window.innerHeight
+});
+
+const viewport = getViewportSize();
+
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'app',
   backgroundColor: '#14141b',
   // RESIZE: канвас занимает весь экран устройства (важно для мобильных),
   // а камера следит за игроком по карте, которая больше экрана
+
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,

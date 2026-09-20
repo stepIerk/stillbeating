@@ -5,7 +5,7 @@ body {
   width: 100%;
   height: 100%;
   /* 100dvh — фикс iOS Safari/standalone, где 100% включает зону под тулбаром */
-  height: 100dvh;
+  /* height: 100dvh; */
   overflow: hidden;
   /*
    * Фон ВНЕ канваса. В iOS standalone зона home-индикатора (~34px) недостижима
@@ -38,6 +38,11 @@ canvas {
   display: block;
 }
 
+body {
+    height: 100vh;
+    min-height: 100vh;
+}
+
 /*
  * iOS standalone PWA (viewport-fit=cover + black-translucent):
  * WebKit вычитает верхний safe-area-inset из height:100%, 100vh, 100svh И
@@ -52,10 +57,10 @@ canvas {
  * здесь НИЧЕМ не компенсируем (никаких padding-bottom на контейнерах) —
  * отступы для HUD поверх канваса считает JS в UIScene.layoutHud().
  */
-@media (display-mode: standalone) {
+/* @media (display-mode: standalone) {
   html,
   body,
   #app {
     height: 100lvh;
   }
-}
+} */
