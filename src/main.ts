@@ -7,12 +7,12 @@ import { installViewportDiagnostics } from './utils/safeArea';
 
 installViewportDiagnostics();
 
-const getViewportSize = () => ({
-    width: window.innerWidth,
-    height: window.innerHeight
-});
+// const getViewportSize = () => ({
+//     width: window.innerWidth,
+//     height: window.innerHeight
+// });
 
-const viewport = getViewportSize();
+// const viewport = getViewportSize();
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
