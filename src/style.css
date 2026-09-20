@@ -7,7 +7,15 @@ body {
   /* 100dvh — фикс iOS Safari/standalone, где 100% включает зону под тулбаром */
   height: 100dvh;
   overflow: hidden;
-  background: #000;
+  /*
+   * Фон ВНЕ канваса. В iOS standalone зона home-индикатора (~34px) недостижима
+   * для веб-контента (WebKit bug 254868: нижний safe-area не входит в layout
+   * viewport, а env(safe-area-inset-bottom) в standalone возвращает 0) — туда
+   * канвас Phaser попасть не может в принципе. Ниже канваса остаётся эта
+   * полоса, и её цвет задаётся отсюда: совпадает с backgroundColor игры
+   * (#14141b), иначе на меню видна «чёрная полоса» (#000) на фоне #14141b.
+   */
+  background: #14141b;
   /* viewport-fit=cover уже в meta: канвас уходит под вырез,
      отступы для HUD добавляются в JS через getSafeAreaInsets() */
 
