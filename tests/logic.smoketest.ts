@@ -9,8 +9,12 @@
  */
 
 import {
+  BOSSES,
+  CHAPTERS,
   DROPS,
   ENEMY_TIERS,
+  isChapterBossWave,
+  chapterOf,
   SHOP_LEVELS,
   SKILL_UPGRADE,
   WAVES,
@@ -29,6 +33,19 @@ import {
   serviceRange,
 } from '../src/systems/Shop';
 import RunState from '../src/state/RunState';
+import {
+  bossAttackDamage,
+  bossNextPhase,
+  bossPhaseDuration,
+  bossStatsForChapter,
+  pickBossAttack,
+  selectBossTarget,
+} from '../src/systems/BossAi';
+import {
+  clearBest,
+  loadBest,
+  maybeSaveBest,
+} from '../src/state/Save';
 import { describeSkillEffect, skillAtLevel, skillById, skillUpgradeCost } from '../src/systems/Skills';
 import WaveSystem from '../src/systems/WaveSystem';
 
@@ -727,24 +744,29 @@ section('WaveSystem: волны, постепенный выход, боссы')
     return system.wave;
   }
 
-  // Растём до волны с боссом, запоминая тиры каждой волны
+  // Растём до боссовой волны (конец главы), запоминая тиры каждой волны
+  const bossWave = CHAPTERS.wavesPerChapter;
   const { sys: prog, log: progLog } = makeSystem();
   const tiersByWave = new Map<number, EnemyTierId[]>();
   let guard = 0;
-  while (prog.wave < WAVES.bossEvery && guard++ < WAVES.bossEvery + 2) {
+  while (prog.wave < bossWave && guard++ < bossWave + 2) {
     const from = progLog.spawned.length;
     const wave = driveWave(prog);
     tiersByWave.set(wave, progLog.spawned.slice(from));
   }
-  check('дошли до волны с боссом', prog.wave === WAVES.bossEvery);
+  check('дошли до конца главы (боссовой волны)', prog.wave === bossWave);
   check(
     'на боссовой волне появляется босс',
-    (tiersByWave.get(WAVES.bossEvery) ?? []).includes('boss'),
+    (tiersByWave.get(bossWave) ?? []).includes('boss'),
+  );
+  check(
+    'боссовая волна — ровно один босс без мобов',
+    ((tiersByWave.get(bossWave) ?? []).length === 1) && (tiersByWave.get(bossWave) ?? [])[0] === 'boss',
   );
   check(
     'в ранних волнах босса нет',
     [...tiersByWave.entries()].every(
-      ([wave, tiers]) => wave >= WAVES.bossEvery || !tiers.includes('boss'),
+      ([wave, tiers]) => wave >= bossWave || !tiers.includes('boss'),
     ),
   );
   check(
@@ -764,8 +786,182 @@ section('WaveSystem: волны, постепенный выход, боссы')
   check('на первой волне есть слизни', firstWaveTiers.includes('slime'));
 }
 
-// -------------------------------------------------------------------- Итог
+// ---------------------------------------------------- Сохранение забега
 
+section('Save: сериализация забега, восстановление волны и рекорд');
+{
+  const run = new RunState();
+  run.addGold(500);
+  run.addXp(100);
+  run.learnSkill('dash');
+  run.upgradeSkillLevel('dash', 0, Infinity);
+  run.upgradeSkillLevel('dash', 0, Infinity);
+  run.addWeapon('bow');
+  run.addWeapon('staff');
+  run.toggleEquip('bow');
+  run.upgradeShop(0);
+  run.attrs.str = 9;
+  run.addStatPoints(2);
+  run.kills = 42;
+
+  const snapshot = run.serialize();
+
+  // Копия через JSON — имитация roundtrip через localStorage
+  const restored = new RunState();
+  restored.restore(JSON.parse(JSON.stringify(snapshot)));
+
+  check('восстановлено золото', restored.gold === run.gold);
+  check('восстановлены уровень и опыт', restored.level === run.level && restored.xp === run.xp);
+  check('восстановлены атрибуты', restored.attrs.str === 9);
+  check('восстановлены очки характеристик', restored.statPoints === 2);
+  check('восстановлен уровень лавки', restored.shopLevel === run.shopLevel);
+  check('восстановлен сток лавки', JSON.stringify(restored.shopStock) === JSON.stringify(run.shopStock));
+  check('восстановлены покупки (цены растут)', restored.purchasesOf('skill-up-dash') === run.purchasesOf('skill-up-dash'));
+  check('восстановлены навыки', restored.learnedSkills.includes('dash'));
+  check('восстановлен уровень навыка', restored.skillLevelOf('dash') === 3);
+  check('восстановлен слот навыка', restored.skillSlots.includes('dash'));
+  check('восстановлен инвентарь (2 оружия)', restored.inventory.length === 2);
+  check('восстановлен экипированный предмет', equippedWeapon(restored)?.id === 'bow');
+  check('счётчик uid продолжается', (() => {
+    restored.addWeapon('rusty');
+    const last = restored.inventory[restored.inventory.length - 1];
+    return last.weaponId === 'rusty' && Number(last.uid.slice(1)) > Number(run.inventory[1].uid.slice(1));
+  })());
+  check('убийства восстановлены', restored.kills === 42);
+
+  // Битые данные не ломают игру
+  const robust = new RunState();
+  robust.restore({
+    ...snapshot,
+    gold: -50,
+    level: 0,
+    learnedSkills: ['hack-skill', 'dash'],
+    inventory: [{ uid: 'x', kind: 'weapon', weaponId: 'not-a-weapon' }],
+    equippedWeaponUid: 'missing',
+  } as typeof snapshot);
+  check('отрицательное золото отброшено', robust.gold === 0);
+  check('уровень не ниже 1', robust.level === 1);
+  check('неизвестный навык отброшен', robust.learnedSkills.join(',') === 'dash');
+  check('неизвестное оружие отброшено', robust.inventory.length === 0);
+  check('битая экипировка снята', robust.equippedWeaponUid === null);
+}
+
+section('Save: продолжение с сохранённой волны');
+{
+  // Проверяем restartAtWave напрямую: следующая волна должна быть ровно 7
+  const started: number[] = [];
+  const sys = new WaveSystem({ onWaveStart: (w) => started.push(w), onSpawn: () => {}, onWaveClear: () => {}, onIntermissionTick: () => {} });
+  sys.restartAtWave(7);
+  check('после восстановления фаза — межволновая пауза', sys.phaseName === 'intermission');
+  // Прокручиваем паузу (6с по конфигу) маленькими шагами
+  for (let i = 0; i < 700; i++) {
+    sys.update(10, 0);
+  }
+  check('сохранённая волна начинается заново', started[0] === 7);
+}
+
+section('Save: рекорд обновляется только при улучшении');
+{
+  clearBest();
+  check('первый результат записывается', maybeSaveBest({ wave: 5, level: 4, kills: 30, time: 200 }) === true);
+  check('рекорд прочитан', loadBest()?.wave === 5);
+  check('худший результат не затирает рекорд', maybeSaveBest({ wave: 3, level: 9, kills: 99, time: 500 }) === false);
+  check('рекорд остался прежним', loadBest()?.level === 4);
+  check('лучший результат обновляется', maybeSaveBest({ wave: 6, level: 2, kills: 1, time: 100 }) === true);
+  check('при равной волне сравнивается уровень', maybeSaveBest({ wave: 6, level: 5, kills: 1, time: 100 }) === true);
+  check('финальный рекорд — волна 6, уровень 5', loadBest()?.wave === 6 && loadBest()?.level === 5);
+}
+
+// ------------------------------------------------------ Главы и боссы глав
+
+section('Chapters: счётчик глав и боссовые волны');
+{
+  check('волна 1 — глава 1', chapterOf(1) === 1);
+  check('волна 19 — глава 1', chapterOf(19) === 1);
+  check('волна 20 — глава 1', chapterOf(20) === 1);
+  check('волна 21 — глава 2', chapterOf(21) === 2);
+  check('волна 40 — глава 2', chapterOf(40) === 2);
+  check('волна 41 — глава 3', chapterOf(41) === 3);
+  check('волна 60 — глава 3', chapterOf(60) === 3);
+
+  check('волна 20 — боссовая', isChapterBossWave(20));
+  check('волна 40 — боссовая', isChapterBossWave(40));
+  check('волна 60 — боссовая', isChapterBossWave(60));
+  check('волна 19 — не боссовая', !isChapterBossWave(19));
+  check('волна 1 — не боссовая', !isChapterBossWave(1));
+
+  check('шаг глав из конфига равен 20', CHAPTERS.wavesPerChapter === 20);
+
+  // RunState.chapter считается от волны
+  const run = new RunState();
+  run.wave = 45;
+  check('RunState.chapter считает главу по волне', run.chapter === 3);
+}
+
+section('Bosses: конфиг, масштабирование по главам и выбор босса');
+{
+  check('в конфиге есть хотя бы один босс (расширяемый список)', BOSSES.length >= 1);
+  const boss = BOSSES[0];
+  check('у босса есть имя и HP', boss.name.length > 0 && boss.hp > 0);
+  check('у босса есть набор атак', boss.attacks.length >= 3);
+
+  // Набор атак покрывает все заявленные виды (рывок, шипы, сильный удар, зона)
+  const ids = boss.attacks.map((a) => a.id);
+  check('есть рывок', ids.includes('charge'));
+  check('есть шипы', ids.includes('spikes'));
+  check('есть сильный удар', ids.includes('slam'));
+  check('есть удар по территории', ids.includes('groundAoe'));
+
+  // У каждой атаки есть телеграф, активная фаза и откат
+  check(
+    'у каждой атаки есть телеграф, урон и откат',
+    boss.attacks.every((a) => a.telegraphMs > 0 && a.activeMs > 0 && a.recoverMs > 0 && a.damageMult > 0),
+  );
+
+  // Босс 2-й главы крепче и бьёт сильнее, но награда растёт сильнее
+  const c1 = bossStatsForChapter(boss, 1);
+  const c3 = bossStatsForChapter(boss, 3);
+  check('HP босса растёт с главой', c3.maxHp > c1.maxHp);
+  check('урон босса растёт с главой', c3.damage > c1.damage);
+  check('награда босса растёт с главой', c3.gold > c1.gold && c3.xp > c1.xp);
+  check('босс 1-й главы не слабее базового HP', c1.maxHp >= boss.hp);
+}
+
+section('BossAi: фазы атаки, выбор цели и урон');
+{
+  const boss = BOSSES[0];
+  const charge = boss.attacks.find((a) => a.id === 'charge')!;
+
+  // Порядок фаз: телеграф → активная → откат → преследование
+  check('после телеграфа идёт активная фаза', bossNextPhase('telegraph') === 'active');
+  check('после активной фазы идёт откат', bossNextPhase('active') === 'recover');
+  check('после отката — преследование', bossNextPhase('recover') === 'chase');
+  check('в преследовании фаза не меняется', bossNextPhase('chase') === 'chase');
+
+  // Длительности фаз берутся из описания атаки
+  check('длительность телеграфа — из атаки', bossPhaseDuration('telegraph', charge) === charge.telegraphMs);
+  check('длительность активной фазы — из атаки', bossPhaseDuration('active', charge) === charge.activeMs);
+  check('длительность отката — из атаки', bossPhaseDuration('recover', charge) === charge.recoverMs);
+  check('у преследования нет длительности', bossPhaseDuration('chase', charge) === 0);
+
+  // Взвешенный выбор атаки: крайние значения ролла дают разные атаки
+  const first = pickBossAttack(boss.attacks, 0);
+  const last = pickBossAttack(boss.attacks, 0.999);
+  check('выбор атаки возвращает атаку из набора', boss.attacks.includes(first));
+  check('крайние роллы дают разные атаки', first.id !== last.id);
+  check('выбор не падает на пустом весе', pickBossAttack([charge], 0.5).id === 'charge');
+
+  // Урон атаки = базовый урон босса × множитель
+  check('урон атаки учитывает множитель', bossAttackDamage(boss.damage, charge) === Math.round(boss.damage * charge.damageMult));
+
+  // Выбор цели: игрок приоритетен; сердце — только когда игрок мёртв или сильно ближе
+  check('живой игрок ближе — босс идёт за игроком', selectBossTarget(true, 200, 400) === 'player');
+  check('игрок мёртв — босс идёт к сердцу', selectBossTarget(false, 200, 400) === 'crystal');
+  check('сердце сильно ближе — босс идёт к сердцу', selectBossTarget(true, 400, 100) === 'crystal');
+  check('сердце чуть ближе — босс всё равно идёт за игроком', selectBossTarget(true, 200, 150) === 'player');
+}
+
+// -------------------------------------------------------------------- Итог
 console.log('');
 if (failures.length === 0) {
   console.log(`✅ ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ: ${passed}`);

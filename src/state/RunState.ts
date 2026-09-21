@@ -1,4 +1,13 @@
-import { ATTRS, SHOP_LEVELS, type AttrId, type Rarity, WEAPONS, XP_CURVE } from '../config/balance';
+import {
+  ATTRS,
+  chapterOf,
+  SHOP_LEVELS,
+  type AttrId,
+  type Rarity,
+  SKILLS,
+  WEAPONS,
+  XP_CURVE,
+} from '../config/balance';
 
 export interface InventoryItem {
   /** Уникальный идентификатор экземпляра предмета */
@@ -30,6 +39,11 @@ export default class RunState {
   level = 1;
   kills = 0;
   startedAt = 0;
+
+  /** Номер главы забега (каждые CHAPTERS.wavesPerChapter волн — новая глава) */
+  get chapter(): number {
+    return chapterOf(this.wave);
+  }
 
   /** Атрибуты и очки характеристик */
   attrs: Record<AttrId, number> = {
@@ -238,6 +252,104 @@ export default class RunState {
 
   getElapsedSeconds(now: number): number {
     return (now - this.startedAt) / 1000;
+  }
+
+  // ---------- Сериализация (сохранение забега) ----------
+
+  /** Снимок состояния забега для localStorage */
+  serialize() {
+    return {
+      version: 1,
+      wave: this.wave,
+      gold: this.gold,
+      xp: this.xp,
+      level: this.level,
+      kills: this.kills,
+      attrs: { ...this.attrs },
+      statPoints: this.statPoints,
+      shopLevel: this.shopLevel,
+      shopStock: this.shopStock.map((s) => ({ ...s })),
+      stockShopLevel: this.stockShopLevel,
+      purchases: { ...this.purchases },
+      nextUid: this.nextUid,
+      learnedSkills: [...this.learnedSkills],
+      skillLevels: { ...this.skillLevels },
+      skillSlots: [...this.skillSlots],
+      inventory: this.inventory.map((i) => ({ ...i })),
+      equippedWeaponUid: this.equippedWeaponUid,
+    };
+  }
+
+  /**
+   * Восстановление состояния из снимка. Некорректные данные отбрасываются
+   * по частям (неизвестные навыки/оружие, отрицательные числа) — сломать
+   * игру битым сейвом нельзя.
+   */
+  restore(data: ReturnType<RunState['serialize']>): void {
+    const num = (v: unknown, fallback: number): number =>
+      typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+
+    this.wave = Math.max(0, Math.floor(num(data.wave, 0)));
+    this.gold = Math.floor(num(data.gold, 0));
+    this.xp = Math.floor(num(data.xp, 0));
+    this.level = Math.max(1, Math.floor(num(data.level, 1)));
+    this.kills = Math.floor(num(data.kills, 0));
+    this.statPoints = Math.floor(num(data.statPoints, 0));
+    this.shopLevel = Math.min(
+      SHOP_LEVELS.maxLevel,
+      Math.max(1, Math.floor(num(data.shopLevel, 1))),
+    );
+
+    for (const attr of Object.keys(this.attrs) as AttrId[]) {
+      const v = (data.attrs as Record<string, unknown> | undefined)?.[attr];
+      this.attrs[attr] = Math.max(0, Math.floor(num(v, ATTRS.startValue)));
+    }
+
+    this.shopStock = Array.isArray(data.shopStock)
+      ? data.shopStock
+          .filter((s): s is ShopStockSlot => Boolean(s))
+          .map((s) => ({
+            slotIndex: Math.max(0, Math.floor(num(s.slotIndex, 0))),
+            tier: s.tier,
+            defId: s.defId,
+            replacementsLeft: Math.max(0, Math.floor(num(s.replacementsLeft, 0))),
+          }))
+      : [];
+    this.stockShopLevel = Math.max(0, Math.floor(num(data.stockShopLevel, 0)));
+
+    this.purchases = {};
+    if (data.purchases && typeof data.purchases === 'object') {
+      for (const [id, count] of Object.entries(data.purchases)) {
+        this.purchases[id] = Math.max(0, Math.floor(num(count, 0)));
+      }
+    }
+    this.nextUid = Math.max(1, Math.floor(num(data.nextUid, 1)));
+
+    this.learnedSkills = Array.isArray(data.learnedSkills)
+      ? data.learnedSkills.filter((id) => SKILLS.some((s) => s.id === id))
+      : [];
+    this.skillLevels = {};
+    if (data.skillLevels && typeof data.skillLevels === 'object') {
+      for (const [id, level] of Object.entries(data.skillLevels)) {
+        if (this.learnedSkills.includes(id)) {
+          this.skillLevels[id] = Math.max(1, Math.floor(num(level, 1)));
+        }
+      }
+    }
+    this.skillSlots = Array.isArray(data.skillSlots) && data.skillSlots.length === 3
+      ? data.skillSlots.map((id) => (typeof id === 'string' && this.learnedSkills.includes(id) ? id : null))
+      : [null, null, null];
+
+    this.inventory = Array.isArray(data.inventory)
+      ? data.inventory
+          .filter((i): i is InventoryItem => Boolean(i) && typeof i.weaponId === 'string')
+          .filter((i) => WEAPONS.some((w) => w.id === i.weaponId))
+          .map((i) => ({ uid: String(i.uid), kind: 'weapon' as const, weaponId: i.weaponId }))
+      : [];
+    this.equippedWeaponUid =
+      typeof data.equippedWeaponUid === 'string' && this.getInventoryItem(data.equippedWeaponUid)
+        ? data.equippedWeaponUid
+        : null;
   }
 }
 

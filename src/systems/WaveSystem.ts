@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ENEMY_TIERS, WAVES, waveEnemyCount, type EnemyTierId } from '../config/balance';
+import { ENEMY_TIERS, isChapterBossWave, WAVES, waveEnemyCount, type EnemyTierId } from '../config/balance';
 
 export type WavePhase = 'intermission' | 'spawning' | 'clearing';
 
@@ -84,6 +84,18 @@ export default class WaveSystem {
     this.callbacks.onWaveStart(this.wave, this.queue.length);
   }
 
+  /**
+   * Продолжение сохранённого забега: следующая начатая волна будет ровно
+   * `wave` (она начинается заново — с межволновой паузы).
+   */
+  restartAtWave(wave: number): void {
+    this.wave = Math.max(0, wave - 1);
+    this.phase = 'intermission';
+    this.timer = WAVES.intermission;
+    this.spawnTimer = 0;
+    this.queue = [];
+  }
+
   private spawnInterval(): number {
     return Math.max(
       WAVES.minSpawnInterval,
@@ -93,13 +105,13 @@ export default class WaveSystem {
 
   /** Очередь спавна волны: количество растёт (аркадно, бесконечно), тиры — по мере прогресса */
   private buildQueue(wave: number): EnemyTierId[] {
+    // Последняя волна главы — боссовая: приходит ровно один босс без мобов
+    if (isChapterBossWave(wave)) {
+      return ['boss'];
+    }
+
     const count = waveEnemyCount(wave);
     const queue: EnemyTierId[] = [];
-
-    // Босс приходит каждые N волн и идёт к кристаллу
-    if (wave % WAVES.bossEvery === 0) {
-      queue.push('boss');
-    }
     while (queue.length < count) {
       queue.push(this.pickTier(wave));
     }

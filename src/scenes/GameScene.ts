@@ -18,6 +18,11 @@ import {
   type SkillDef,
 } from '../config/balance';
 import { BOTTOM_EXTRA_LIFT } from '../config/uiLayout';
+import {
+  BOSS_SCALING,
+  bossForChapter,
+} from '../config/balance';
+import Boss from '../entities/Boss';
 import Crystal from '../entities/Crystal';
 import Enemy from '../entities/Enemy';
 import Player from '../entities/Player';
@@ -46,6 +51,13 @@ interface EnemyShot {
 }
 
 /**
+ * Цель, по которой может попасть атака игрока: обычный враг или босс главы.
+ * Оба умеют получать урон и имеют радиус тела, поэтому сцена работает с ними
+ * единообразно.
+ */
+type DamageTarget = Enemy | Boss;
+
+/**
  * Сфера атаки игрока: летит от героя, доворачивается к цели и разлетается
  * брызгами при попадании или на пределе радиуса атаки.
  */
@@ -59,7 +71,7 @@ interface PlayerShot {
   /** Радиус атаки на момент выстрела (px) */
   maxDistance: number;
   /** Цель сферы (null — выстрел в пустоту) */
-  target: Enemy | null;
+  target: DamageTarget | null;
   damage: number;
   isCrit: boolean;
   /** Сфера летит в лавку: попадёт — откроет магазин */
@@ -68,6 +80,7 @@ interface PlayerShot {
   lastTrailAt: number;
 }
 import RunState from '../state/RunState';
+import { loadRun, saveRun, clearRun, maybeSaveBest } from '../state/Save';
 import { rollDrops } from '../systems/Drops';
 import { computeStats } from '../systems/DerivedStats';
 import {
@@ -78,6 +91,7 @@ import {
   type ShopOffer,
   type ShopTabId,
 } from '../systems/Shop';
+import { bossAttackDamage, bossStatsForChapter } from '../systems/BossAi';
 import { skillAtLevel, describeSkillNumbers, skillById } from '../systems/Skills';
 import WaveSystem from '../systems/WaveSystem';
 import { burst, showFloatingText } from '../ui/FloatingText';
@@ -87,6 +101,8 @@ import type UIScene from './UIScene';
 const GATE_OFFSET = 42;
 /** Через сколько мс после разрушения кристалла игра вернётся в меню */
 const GAME_OVER_DELAY = 4200;
+/** Как часто автосохранение забега обновляется (мс) */
+const AUTOSAVE_INTERVAL = 2000;
 
 /** Скейлинг зума камеры под размер экрана */
 function computeZoom(width: number, height: number): number {
@@ -102,6 +118,8 @@ export default class GameScene extends Phaser.Scene {
   private shop!: Shop;
   private walls: Phaser.GameObjects.Rectangle[] = [];
   private enemies: Enemy[] = [];
+  /** Босс текущей главы (не более одного одновременно) */
+  private boss: Boss | null = null;
   private coins: Phaser.Physics.Arcade.Image[] = [];
   private waveSystem!: WaveSystem;
   private run = new RunState();
@@ -114,6 +132,7 @@ export default class GameScene extends Phaser.Scene {
   private paused = false;
   private respawnAt = 0;
   private lastStatsAt = 0;
+  private lastSaveAt = 0;
 
   private shopOffers: ShopOffer[] = [];
   /** Заморозка врагов (услуга лавки): враги не двигаются и не бьют до этого времени */
@@ -142,6 +161,7 @@ export default class GameScene extends Phaser.Scene {
     this.respawnAt = 0;
     this.lastStatsAt = 0;
     this.enemies = [];
+    this.boss = null;
     this.coins = [];
     this.walls = [];
     this.gates = [];
@@ -149,6 +169,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemyShots = [];
     this.playerShots = [];
     this.run = new RunState();
+    this.lastSaveAt = 0;
     // Поле-инициализация срабатывает только при первом конструировании сцены,
     // поэтому при повторном забеге сбрасываем накопленное состояние вручную
     this.skillCooldowns = [0, 0, 0];
@@ -174,6 +195,7 @@ export default class GameScene extends Phaser.Scene {
     this.setupCamera();
 
     this.run.startedAt = this.time.now;
+    this.restoreSavedRun();
 
     // UI-сцена: джойстик, кнопка атаки, характеристики, панели выбора
     if (this.scene.isActive('UI')) {
@@ -467,6 +489,11 @@ export default class GameScene extends Phaser.Scene {
 
   /** Спавн врага из ворот: у ворот по одному, с анимацией выхода */
   private spawnEnemy(tierId: EnemyTierId): void {
+    if (tierId === 'boss') {
+      // Босс — отдельная сущность с набором атак (см. spawnBoss)
+      this.spawnBoss();
+      return;
+    }
     const gate = Phaser.Utils.Array.GetRandom(this.gates);
     const enemy = new Enemy(this, gate.x, gate.y, tierId, this.waveSystem.wave);
     this.enemies.push(enemy);
@@ -488,6 +515,153 @@ export default class GameScene extends Phaser.Scene {
         }
       },
     });
+  }
+
+  // ---------- Босс главы ----------
+
+  /** Спавн босса главы: один на волну, из случайных ворот */
+  private spawnBoss(): void {
+    if (this.boss && !this.boss.isDead) {
+      return;
+    }
+    const chapter = this.run.chapter;
+    const def = bossForChapter(chapter);
+    const gate = Phaser.Utils.Array.GetRandom(this.gates);
+    this.boss = new Boss(this, gate.x, gate.y, def, chapter);
+
+    // Босс — препятствие для игрока, но не толкается
+    this.physics.add.collider(this.player, this.boss);
+    this.physics.add.collider(this.boss, this.crystal);
+
+    this.events.emit('boss-spawn', {
+      name: def.name,
+      chapter,
+      maxHp: this.boss.maxHp,
+      hp: this.boss.hp,
+    });
+    showFloatingText(this, gate.x, gate.y - 60, def.name, '#ff5252', 22);
+  }
+
+  /**
+   * Кадр босса: движение и атаки. Урон наносится в первый кадр фазы active —
+   * то есть после телеграфа, так что игрок видит, что будет.
+   */
+  private updateBoss(time: number): void {
+    const boss = this.boss;
+    if (!boss || boss.isDead) {
+      return;
+    }
+
+    const startedAttack = boss.update(
+      time,
+      this.player.x,
+      this.player.y,
+      !this.player.isDead,
+      this.crystal.x,
+      this.crystal.y,
+    );
+
+    this.events.emit('boss-hp', { hp: Math.ceil(boss.hp), maxHp: boss.maxHp });
+
+    if (startedAttack) {
+      this.resolveBossAttack(boss, time);
+    }
+  }
+
+  /** Применение атаки босса в момент её активной фазы */
+  private resolveBossAttack(boss: Boss, time: number): void {
+    const attack = boss.currentAttack;
+    if (!attack) {
+      return;
+    }
+    const damage = bossAttackDamage(boss.damage, attack);
+    const radius = attack.radius ?? 140;
+
+    this.cameras.main.shake(240, 0.008);
+
+    if (attack.id === 'charge') {
+      // Рывок: босс бросается к цели и бьёт всех на пути
+      const tx = boss.target === 'player' ? this.player.x : this.crystal.x;
+      const ty = boss.target === 'player' ? this.player.y : this.crystal.y;
+      const angle = Math.atan2(ty - boss.y, tx - boss.x);
+      const dist = Math.min(attack.distance ?? 420, Phaser.Math.Distance.Between(boss.x, boss.y, tx, ty));
+      const body = boss.body as Phaser.Physics.Arcade.Body | null;
+      body?.reset(boss.x + Math.cos(angle) * dist, boss.y + Math.sin(angle) * dist);
+      boss.setVelocity(0, 0);
+      burst(this, boss.x, boss.y, boss.def.color, 10, 110, 6);
+      this.applyBossAreaDamage(boss, damage, radius, boss.x, boss.y);
+      return;
+    }
+
+    if (attack.id === 'spikes') {
+      // Шипы во все стороны: урон по кругу вокруг босса
+      burst(this, boss.x, boss.y, 0xffd54f, 16, 220, 7);
+      this.applyBossAreaDamage(boss, damage, radius, boss.x, boss.y);
+      return;
+    }
+
+    if (attack.id === 'slam') {
+      // Один сильный удар по текущей цели
+      burst(this, boss.x, boss.y, 0xff5252, 12, 120, 6);
+      this.applyBossTargetDamage(boss, damage);
+      return;
+    }
+
+    // groundAoe: удар по территории под целью
+    const tx = boss.target === 'player' ? this.player.x : this.crystal.x;
+    const ty = boss.target === 'player' ? this.player.y : this.crystal.y;
+    burst(this, tx, ty, 0xff7043, 18, 200, 8);
+    this.cameras.main.shake(300, 0.01);
+    this.applyBossAreaDamage(boss, damage, radius, tx, ty);
+    void time;
+  }
+
+  /** Урон по площади: цель задета, если она в радиусе удара */
+  private applyBossAreaDamage(boss: Boss, damage: number, radius: number, x: number, y: number): void {
+    const now = this.time.now;
+
+    if (!this.player.isDead && !this.player.isInvulnerable(now)) {
+      const dist = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y);
+      if (dist <= radius + PLAYER_STATS.radius) {
+        const died = this.player.takeDamage(damage, now);
+        showFloatingText(this, this.player.x, this.player.y - 52, `-${damage}`, '#ff5252', 16);
+        if (died) {
+          this.killPlayer();
+        }
+      }
+    }
+
+    const distToCrystal = Phaser.Math.Distance.Between(x, y, this.crystal.x, this.crystal.y);
+    if (distToCrystal <= radius + CRYSTAL_STATS.radius) {
+      const destroyed = this.crystal.takeDamage(damage);
+      showFloatingText(this, this.crystal.x, this.crystal.y - 70, `-${damage}`, '#ff8a65', 14);
+      if (destroyed) {
+        this.gameOver();
+      }
+    }
+    void boss;
+  }
+
+  /** Одиночный удар босса по игроку или сердцу */
+  private applyBossTargetDamage(boss: Boss, damage: number): void {
+    const now = this.time.now;
+    if (boss.target === 'player') {
+      if (this.player.isDead || this.player.isInvulnerable(now)) {
+        return;
+      }
+      const died = this.player.takeDamage(damage, now);
+      showFloatingText(this, this.player.x, this.player.y - 52, `-${damage}`, '#ff5252', 17);
+      if (died) {
+        this.killPlayer();
+      }
+      return;
+    }
+
+    const destroyed = this.crystal.takeDamage(damage);
+    showFloatingText(this, this.crystal.x, this.crystal.y - 70, `-${damage}`, '#ff8a65', 15);
+    if (destroyed) {
+      this.gameOver();
+    }
   }
 
   // ---------- Камера ----------
@@ -615,6 +789,8 @@ export default class GameScene extends Phaser.Scene {
     this.shopOffers = pickShopOffers(this.run);
     this.emitShopOffers();
     this.emitStats();
+    // Покупки происходят на паузе — сейвим сразу, а не по автотроттлингу
+    this.persistRun(this.time.now, true);
   }
 
   /** Применение эффекта покупки */
@@ -743,7 +919,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.player.markAttacked(now);
 
-    const target = this.findNearestEnemy(this.player.x, this.player.y, this.player.attackRange);
+    const target = this.findNearestTarget(this.player.x, this.player.y, this.player.attackRange);
 
     // Врагов рядом нет: сфера летит вперёд, а удар по лавке открывает магазин
     if (!target) {
@@ -781,7 +957,7 @@ export default class GameScene extends Phaser.Scene {
   /** Запуск сферы атаки из тела игрока в заданном направлении */
   private spawnPlayerShot(
     dir: Phaser.Math.Vector2,
-    target: Enemy | null,
+    target: DamageTarget | null,
     damage: number,
     isCrit: boolean,
     hitShop: boolean,
@@ -840,7 +1016,7 @@ export default class GameScene extends Phaser.Scene {
         target &&
         !target.isDead &&
         Phaser.Math.Distance.Between(shot.image.x, shot.image.y, target.x, target.y) <=
-          PLAYER_ATTACK_FX.hitRadius + target.tier.radius
+          PLAYER_ATTACK_FX.hitRadius + target.hitRadius
       ) {
         this.splashAt(shot.image.x, shot.image.y);
         this.applyPlayerHit(target, shot.dir, shot.damage, shot.isCrit);
@@ -878,7 +1054,7 @@ export default class GameScene extends Phaser.Scene {
 
   /** Урон сферы по врагу: цифры урона, микроотброс и обработка смерти */
   private applyPlayerHit(
-    target: Enemy,
+    target: DamageTarget,
     dir: Phaser.Math.Vector2,
     damage: number,
     isCrit: boolean,
@@ -887,7 +1063,6 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    const died = target.takeDamage(damage);
     showFloatingText(
       this,
       target.x,
@@ -897,12 +1072,12 @@ export default class GameScene extends Phaser.Scene {
       isCrit ? 20 : 16,
     );
 
-    // Микроотброс, чтобы врагов можно было «кайтить»
-    target.setPosition(target.x + dir.x * 8, target.y + dir.y * 8);
-
-    if (died) {
-      this.onEnemyKilled(target);
+    // Микроотброс, чтобы врагов можно было «кайтить» (босс не отбрасывается)
+    if (target instanceof Enemy) {
+      target.setPosition(target.x + dir.x * 8, target.y + dir.y * 8);
     }
+
+    this.damageTarget(target, damage);
   }
 
   /** Взрыв сферы: мягкая белая вспышка и разлетающиеся брызги */
@@ -1025,18 +1200,21 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const damage = Math.round(this.player.effectiveDamage(now) * this.dashDamageMult);
-    for (const enemy of [...this.enemies]) {
-      if (enemy.isDead || this.dashHitIds.has(enemy)) {
+    const dashTargets: DamageTarget[] = [...this.enemies];
+    const boss = this.boss;
+    if (boss && !boss.isDead && !this.dashHitIds.has(boss as unknown as Enemy)) {
+      dashTargets.push(boss);
+    }
+    for (const enemy of dashTargets) {
+      const hitKey = enemy as unknown as Enemy;
+      if (enemy.isDead || this.dashHitIds.has(hitKey)) {
         continue;
       }
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
-      if (dist <= PLAYER_STATS.radius + 42) {
-        this.dashHitIds.add(enemy);
-        const died = enemy.takeDamage(damage);
+      if (dist <= PLAYER_STATS.radius + 42 + (enemy instanceof Boss ? enemy.radius : 0)) {
+        this.dashHitIds.add(hitKey);
         showFloatingText(this, enemy.x, enemy.y - 24, `${damage}`, '#80cbc4', 15);
-        if (died) {
-          this.onEnemyKilled(enemy);
-        }
+        this.damageTarget(enemy, damage);
       }
     }
   }
@@ -1046,14 +1224,18 @@ export default class GameScene extends Phaser.Scene {
     const CHAIN_RANGE_FIRST = 420;
     const CHAIN_RANGE_HOP = 260;
 
-    const hit: Enemy[] = [];
+    const hit: DamageTarget[] = [];
     let from = new Phaser.Math.Vector2(this.player.x, this.player.y);
     let range = CHAIN_RANGE_FIRST;
+    const candidates: DamageTarget[] = [...this.enemies];
+    if (this.boss && !this.boss.isDead) {
+      candidates.push(this.boss);
+    }
 
     for (let i = 0; i < targets; i++) {
-      let best: Enemy | null = null;
+      let best: DamageTarget | null = null;
       let bestDist = range;
-      for (const enemy of this.enemies) {
+      for (const enemy of candidates) {
         if (enemy.isDead || hit.includes(enemy)) {
           continue;
         }
@@ -1080,11 +1262,8 @@ export default class GameScene extends Phaser.Scene {
 
     const damage = Math.round(this.player.effectiveDamage(now) * damageMult);
     for (const enemy of hit) {
-      const died = enemy.takeDamage(damage);
       showFloatingText(this, enemy.x, enemy.y - 24, `${damage}`, '#80deea', 15);
-      if (died) {
-        this.onEnemyKilled(enemy);
-      }
+      this.damageTarget(enemy, damage);
     }
   }
 
@@ -1127,16 +1306,17 @@ export default class GameScene extends Phaser.Scene {
     });
 
     const damage = Math.round(this.player.effectiveDamage(now) * damageMult);
-    for (const enemy of [...this.enemies]) {
+    const novaTargets: DamageTarget[] = [...this.enemies];
+    if (this.boss && !this.boss.isDead) {
+      novaTargets.push(this.boss);
+    }
+    for (const enemy of novaTargets) {
       if (enemy.isDead) {
         continue;
       }
       if (Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y) <= radius) {
-        const died = enemy.takeDamage(damage);
         showFloatingText(this, enemy.x, enemy.y - 24, `${damage}`, '#b39ddb', 15);
-        if (died) {
-          this.onEnemyKilled(enemy);
-        }
+        this.damageTarget(enemy, damage);
       }
     }
   }
@@ -1225,6 +1405,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.recalcFor(this.run);
       this.refreshInventory();
       this.emitStats();
+      this.persistRun(this.time.now, true);
     }
   }
 
@@ -1234,6 +1415,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.recalcFor(this.run);
       this.refreshInventory();
       this.emitStats();
+      this.persistRun(this.time.now, true);
     }
   }
 
@@ -1244,6 +1426,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.recalcFor(this.run);
       this.refreshInventory();
       this.emitStats();
+      this.persistRun(this.time.now, true);
     }
   }
 
@@ -1259,6 +1442,7 @@ export default class GameScene extends Phaser.Scene {
       this.events.emit('skills-changed');
     }
     this.refreshInventory();
+    this.persistRun(this.time.now, true);
   }
 
   private findNearestEnemy(x: number, y: number, range: number): Enemy | null {
@@ -1276,6 +1460,37 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     return best;
+  }
+
+  /** Ближайшая цель атаки с учётом босса: обычные враги и босс главы */
+  private findNearestTarget(x: number, y: number, range: number): DamageTarget | null {
+    let best: DamageTarget | null = this.findNearestEnemy(x, y, range);
+    let bestDist = best ? Phaser.Math.Distance.Between(x, y, best.x, best.y) : range;
+
+    const boss = this.boss;
+    if (boss && !boss.isDead) {
+      const dist = Phaser.Math.Distance.Between(x, y, boss.x, boss.y) - boss.radius;
+      if (dist <= bestDist) {
+        best = boss;
+      }
+    }
+    return best;
+  }
+
+  /** Урон по цели игрока (враг или босс) с обработкой смерти */
+  private damageTarget(target: DamageTarget, damage: number): boolean {
+    if (target instanceof Boss) {
+      const died = target.takeDamage(damage);
+      if (died) {
+        this.onBossKilled(target);
+      }
+      return died;
+    }
+    const died = target.takeDamage(damage);
+    if (died) {
+      this.onEnemyKilled(target);
+    }
+    return died;
   }
 
   /** Выстрел стрелка: заряд летит в текущую цель (игрок или кристалл) */
@@ -1436,6 +1651,40 @@ export default class GameScene extends Phaser.Scene {
     this.emitStats();
   }
 
+  // ---------- Сохранение забега ----------
+
+  /** Полный бонус к макс. HP сердца, накопленный покупками в лавке */
+  private crystalBonusHp(): number {
+    return Math.max(0, this.crystal.maxHp - CRYSTAL_STATS.maxHp);
+  }
+
+  /** Автосохранение: троттлится, не пишем в хранилище чаще 1 раза в 2с */
+  private persistRun(now: number, force = false): void {
+    if (this.isGameOver || (!force && now - this.lastSaveAt < AUTOSAVE_INTERVAL)) {
+      return;
+    }
+    this.lastSaveAt = now;
+    saveRun(this.run, this.waveSystem.wave, this.crystalBonusHp());
+  }
+
+  /**
+   * Восстановление забега из localStorage: если сейв есть, продолжаем его —
+   * волна, на которой игра оборвалась, начинается заново.
+   */
+  private restoreSavedRun(): void {
+    const saved = loadRun();
+    if (!saved) {
+      return;
+    }
+
+    this.run.restore(saved);
+    this.waveSystem.restartAtWave(saved.wave);
+    if (saved.crystalBonusHp > 0) {
+      this.crystal.addMaxHp(saved.crystalBonusHp);
+    }
+    this.player.recalcFor(this.run);
+  }
+
   // ---------- Конец забега: кристалл разрушен ----------
 
   private gameOver(): void {
@@ -1445,6 +1694,15 @@ export default class GameScene extends Phaser.Scene {
     this.isGameOver = true;
     this.setPaused(true);
     this.clearPlayerShots();
+
+    // Забег окончен: сейв удаляется, результат идёт в рекорд
+    clearRun();
+    maybeSaveBest({
+      wave: this.waveSystem.wave,
+      level: this.run.level,
+      kills: this.run.kills,
+      time: this.run.getElapsedSeconds(this.time.now),
+    });
 
     this.crystal.playDestroyed();
     // Сердце лопается: кровь разлетается, камера «краснеет»
@@ -1475,6 +1733,60 @@ export default class GameScene extends Phaser.Scene {
     this.rollLoot(enemy);
     this.grantXp(enemy.xpReward, enemy.x, enemy.y - 34);
     this.removeEnemy(enemy);
+  }
+
+  /**
+   * Награда за убийство босса: много опыта, щедрое золото, гарантированные
+   * очки характеристик и улучшенный лут. Боссы следующих глав сильнее и
+   * награждают больше (bossStatsForChapter).
+   */
+  private onBossKilled(boss: Boss): void {
+    const chapter = boss.chapter;
+    const reward = bossStatsForChapter(boss.def, chapter);
+
+    burst(this, boss.x, boss.y, boss.def.color, 22, 200, 9);
+    burst(this, boss.x, boss.y, HEART.muscleHi, 16, 160, 7);
+    this.cameras.main.shake(420, 0.014);
+    this.cameras.main.flash(320, 255, 200, 120);
+
+    // Много золота: часть монетами (сами притянутся к игроку), часть сразу
+    const coinTotal = Math.round(reward.gold * BOSS_SCALING.coinShare);
+    const coinCount = 12;
+    const perCoin = Math.max(1, Math.round(coinTotal / coinCount));
+    for (let i = 0; i < coinCount; i++) {
+      const angle = (i / coinCount) * Math.PI * 2;
+      this.spawnCoins(boss.x + Math.cos(angle) * 46, boss.y + Math.sin(angle) * 46, perCoin);
+    }
+    const directGold = reward.gold - coinTotal;
+    if (directGold > 0) {
+      this.run.addGold(directGold);
+    }
+
+    // Гарантированные очки характеристик и много опыта (сразу несколько уровней)
+    this.run.addStatPoints(BOSS_SCALING.statPoints);
+    this.grantXp(reward.xp, boss.x, boss.y - 60);
+    // Инвентарь мог упереться в предел — пересчитываем статы в любом случае
+    this.player.recalcFor(this.run);
+
+    // Улучшенный лут (босс даёт бонус к шансам — см. rollDrops)
+    const notLearned = SKILLS.filter((s) => !this.run.learnedSkills.includes(s.id)).map((s) => s.id);
+    for (const drop of rollDrops(this.run, true, notLearned)) {
+      if (drop.kind === 'weapon') {
+        const result = this.run.addWeapon(drop.weaponId ?? 'rusty');
+        if (result === 'full') {
+          const def = WEAPONS.find((w) => w.id === (drop.weaponId ?? 'rusty'));
+          this.run.addGold(Math.max(1, Math.round((def?.shopCost ?? 5) * 0.2)));
+        }
+      }
+    }
+
+    showFloatingText(this, boss.x, boss.y - 96, `ГЛАВА ${chapter} ПРОЙДЕНА!`, '#ffd54f', 24);
+    showFloatingText(this, this.player.x, this.player.y - 92, `+${reward.gold} G`, '#ffd54f', 20);
+
+    this.events.emit('boss-dead', { chapter, name: boss.def.name });
+    this.boss = null;
+    this.emitStats();
+    this.persistRun(this.time.now, true);
   }
 
   /**
@@ -1682,6 +1994,7 @@ export default class GameScene extends Phaser.Scene {
       xpToNext: this.run.xpToNext(),
       gold: this.run.gold,
       wave: this.waveSystem.wave,
+      chapter: this.run.chapter,
       enemiesLeft: this.enemies.length,
       kills: this.run.kills,
       crystalHp: Math.ceil(this.crystal.hp),
@@ -1744,18 +2057,23 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    this.updateBoss(time);
     this.updateEnemyShots(time);
     this.updateCoins(time);
 
     // Подсветка лавки, когда игрок может её открыть
     this.shop.setHighlight(this.isNearShop());
 
-    // Волны: интермиссия, постепенный спавн, зачистка
-    this.waveSystem.update(delta, this.enemies.length);
+    // Волны: интермиссия, постепенный спавн, зачистка.
+    // Босс считается живым врагом — боссовая волна закрывается только после его смерти.
+    const aliveEnemies = this.enemies.length + (this.boss && !this.boss.isDead ? 1 : 0);
+    this.waveSystem.update(delta, aliveEnemies);
 
     if (time - this.lastStatsAt > 120) {
       this.lastStatsAt = time;
       this.emitStats();
     }
+
+    this.persistRun(time);
   }
 }

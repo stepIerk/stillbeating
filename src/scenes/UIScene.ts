@@ -28,6 +28,7 @@ export interface StatsPayload {
   xpToNext: number;
   gold: number;
   wave: number;
+  chapter: number;
   enemiesLeft: number;
   kills: number;
   crystalHp: number;
@@ -46,6 +47,18 @@ interface WaveStartPayload {
 interface IntermissionPayload {
   secondsLeft: number;
   wave: number;
+}
+
+interface BossSpawnPayload {
+  name: string;
+  chapter: number;
+  maxHp: number;
+  hp: number;
+}
+
+interface BossHpPayload {
+  hp: number;
+  maxHp: number;
 }
 
 interface LevelUpPayload {
@@ -80,6 +93,11 @@ class Bar {
   setRatio(ratio: number): void {
     const width = this.bg.width - 2;
     this.fill.setSize(Math.max(0.5, width * Phaser.Math.Clamp(ratio, 0, 1)), this.fill.height);
+  }
+
+  setVisible(visible: boolean): void {
+    this.bg.setVisible(visible);
+    this.fill.setVisible(visible);
   }
 }
 
@@ -153,6 +171,11 @@ export default class UIScene extends Phaser.Scene {
   private gameOverBg!: Phaser.GameObjects.Rectangle;
   private gameOverTitle!: Phaser.GameObjects.Text;
   private gameOverStats!: Phaser.GameObjects.Text;
+
+  // Полоса здоровья босса (сверху экрана, видна только в бою с боссом)
+  private bossBar!: Bar;
+  private bossNameText!: Phaser.GameObjects.Text;
+  private bossLabelText!: Phaser.GameObjects.Text;
 
   // Safe-area (iOS standalone, viewport-fit=cover). Обновляется в layoutHud().
   private safeTop = 0;
@@ -257,6 +280,19 @@ export default class UIScene extends Phaser.Scene {
 
     this.crystalBar.setRatio(1);
     this.xpBar.setRatio(0);
+
+    // Полоса босса: появляется только на боссовой волне
+    this.bossBar = new Bar(this, 0xd81b60, UI_TOP.bossBarHeight);
+    this.bossNameText = this.makeText(20, '#ff8a80', true);
+    this.bossLabelText = this.makeText(12, '#ffd54f', true);
+    this.setBossHudVisible(false);
+  }
+
+  /** Показать/скрыть полосу и подписи босса */
+  private setBossHudVisible(visible: boolean): void {
+    this.bossBar.setVisible(visible);
+    this.bossNameText.setVisible(visible);
+    this.bossLabelText.setVisible(visible);
   }
 
   private makeText(size: number, color: string, bold = false): Phaser.GameObjects.Text {
@@ -315,6 +351,15 @@ export default class UIScene extends Phaser.Scene {
 
     this.intermissionText.setPosition(width / 2, UI_TOP.intermissionY + this.safeTop);
     this.shopHint.setPosition(width / 2, UI_TOP.shopHintY + this.safeTop);
+
+    // --- Полоса босса: по центру сверху, с отступами от краёв ---
+    this.bossBar.layout(
+      UI_TOP.bossBarMargin + this.safeLeft,
+      UI_TOP.bossBarY + this.safeTop,
+      width - (UI_TOP.bossBarMargin * 2) - this.safeLeft - safeRight,
+    );
+    this.bossNameText.setPosition(width / 2, UI_TOP.bossNameY + this.safeTop);
+    this.bossLabelText.setPosition(width / 2, UI_TOP.bossLabelY + this.safeTop);
 
     // --- Низ: в самом низу полоска опыта во всю ширину + бейдж уровня по центру ---
     this.xpBar.layout(0, panelTop + CONTROLS_HEIGHT - UI_BOTTOM.xpBarY, width);
@@ -681,6 +726,9 @@ export default class UIScene extends Phaser.Scene {
     gameEvents.on('intermission', this.onIntermission, this);
     gameEvents.on('player-died', this.onPlayerDied, this);
     gameEvents.on('player-respawned', this.onPlayerRespawned, this);
+    gameEvents.on('boss-spawn', this.onBossSpawn, this);
+    gameEvents.on('boss-hp', this.onBossHp, this);
+    gameEvents.on('boss-dead', this.onBossDead, this);
     gameEvents.on('level-up', this.onLevelUp, this);
     gameEvents.on('shop-offer', this.onShopOffer, this);
     gameEvents.on('skills-changed', this.onSkillsChanged, this);
@@ -694,6 +742,9 @@ export default class UIScene extends Phaser.Scene {
       gameEvents.off('intermission', this.onIntermission, this);
       gameEvents.off('player-died', this.onPlayerDied, this);
       gameEvents.off('player-respawned', this.onPlayerRespawned, this);
+      gameEvents.off('boss-spawn', this.onBossSpawn, this);
+      gameEvents.off('boss-hp', this.onBossHp, this);
+      gameEvents.off('boss-dead', this.onBossDead, this);
       gameEvents.off('level-up', this.onLevelUp, this);
       gameEvents.off('shop-offer', this.onShopOffer, this);
       gameEvents.off('skills-changed', this.onSkillsChanged, this);
@@ -720,7 +771,7 @@ export default class UIScene extends Phaser.Scene {
     this.crystalBar.setRatio(data.crystalHp / data.crystalMaxHp);
     this.crystalText.setText(`СЕРДЦЕ ${Math.ceil(data.crystalHp)}/${data.crystalMaxHp}`);
     this.goldText.setText(`G ${data.gold}`);
-    this.waveText.setText(`ВОЛНА ${data.wave} · ${data.enemiesLeft}`);
+    this.waveText.setText(`ГЛ.${data.chapter} · ВОЛНА ${data.wave} · ${data.enemiesLeft}`);
     this.timerText.setText(this.formatTime(data.time));
     this.killsText.setText(`☠ ${data.kills}`);
     this.attackStatsText.setText(
@@ -756,6 +807,29 @@ export default class UIScene extends Phaser.Scene {
   private onWaveStart(data: WaveStartPayload): void {
     this.intermissionText.setVisible(false);
     this.showBanner(`ВОЛНА ${data.wave}`, `врагов: ${data.count}`);
+  }
+
+  /** Босс пришёл: показываем полосу HP и объявляем главу */
+  private onBossSpawn(data: BossSpawnPayload): void {
+    this.setBossHudVisible(true);
+    this.bossBar.setRatio(1);
+    this.bossNameText.setText(data.name);
+    this.bossLabelText.setText(`БОСС · ГЛАВА ${data.chapter}`);
+    this.showBanner('БОСС ГЛАВЫ', `${data.name} · глава ${data.chapter}`);
+  }
+
+  /** Обновление полосы здоровья босса */
+  private onBossHp(data: BossHpPayload): void {
+    if (!this.bossBar.bg.visible) {
+      this.setBossHudVisible(true);
+    }
+    this.bossBar.setRatio(data.maxHp > 0 ? data.hp / data.maxHp : 0);
+  }
+
+  /** Босс побеждён: убираем полосу и поздравляем с главой */
+  private onBossDead(data: { chapter: number; name: string }): void {
+    this.setBossHudVisible(false);
+    this.showBanner(`ГЛАВА ${data.chapter} ПРОЙДЕНА`, `${data.name} повержен · дальше сильнее`);
   }
 
   private showBanner(title: string, subtitle: string): void {

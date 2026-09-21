@@ -87,6 +87,11 @@ export default class Enemy extends Phaser.Physics.Arcade.Image {
     return this.tier.radius + targetRadius + ENEMY_ATTACK_PAD;
   }
 
+  /** Радиус для коллизий снарядов игрока */
+  get hitRadius(): number {
+    return this.tier.radius;
+  }
+
   /** Стрелок: стреляет зарядами, вместо удара в упор */
   get isRanged(): boolean {
     return this.tier.shootRange !== undefined && this.tier.projectileSpeed !== undefined;

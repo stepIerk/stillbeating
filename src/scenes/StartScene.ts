@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { BODY, HEART, VOID_CSS } from '../render/palette';
+import { clearRun, loadRun } from '../state/Save';
+import { loadBest } from '../state/Save';
 import {
   HEART_GLOW_SIZE,
   MENU_HEART_SIZE,
@@ -48,6 +50,10 @@ export default class StartScene extends Phaser.Scene {
       .setShadow(0, 2, '#3a0308', 6, false, true);
 
     this.createPlayButton(centerX, centerY + height * 0.12);
+    this.createBestRunLabel(centerX, centerY + height * 0.12 + 70);
+    this.createContinueHint(centerX, centerY + height * 0.12 + 106);
+    // Кнопка сброса не должна уехать за нижний край на низких экранах
+    this.createNewRunButton(centerX, Math.min(centerY + height * 0.12 + 168, height - 40));
 
     this.scale.on('resize', this.handleResize, this);
     this.events.once('shutdown', () => {
@@ -160,5 +166,84 @@ export default class StartScene extends Phaser.Scene {
   private handleResize(): void {
     // При повороте экрана пересобираем сцену, чтобы UI выстроился заново
     this.scene.restart();
+  }
+
+  /** Рекорд: лучший забег по волнам/уровню */
+  private createBestRunLabel(centerX: number, y: number): void {
+    const best = loadBest();
+    if (!best) {
+      return;
+    }
+    const text =
+      `ЛУЧШИЙ ЗАБЕГ: ВОЛНА ${best.wave} · УРОВЕНЬ ${best.level} · УБИЙСТВ ${best.kills} · ` +
+      `${Math.floor(best.time / 60)}:${String(Math.floor(best.time % 60)).padStart(2, '0')}`;
+    this.add
+      .text(centerX, y, text, {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '16px',
+        color: '#ffd54f',
+      })
+      .setOrigin(0.5)
+      .setShadow(0, 2, '#3a0308', 6, false, true);
+  }
+
+  /** Подсказка о продолжении сохранённого забега */
+  private createContinueHint(centerX: number, y: number): void {
+    if (!loadRun()) {
+      return;
+    }
+    this.add
+      .text(centerX, y, 'нажмите ИГРАТЬ, чтобы продолжить сохранённый забег', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '15px',
+        color: '#9fe8bf',
+      })
+      .setOrigin(0.5)
+      .setShadow(0, 2, '#3a0308', 6, false, true);
+  }
+
+  /** Вторая кнопка: сбросить сохранённый забег и начать новый */
+  private createNewRunButton(centerX: number, y: number): void {
+    if (!loadRun()) {
+      return;
+    }
+
+    const btnWidth = Math.min(300, this.scale.width - 40);
+    const btnHeight = 56;
+    const radius = 14;
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x3a1218, 1);
+    bg.fillRoundedRect(centerX - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, radius);
+    bg.lineStyle(1, 0x8a4a52, 0.7);
+    bg.strokeRoundedRect(centerX - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, radius);
+
+    const label = this.add
+      .text(centerX, y, 'НАЧАТЬ ЗАНОВО', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '22px',
+        fontStyle: 'bold',
+        color: '#e8a0a8',
+      })
+      .setOrigin(0.5)
+      .setShadow(0, 2, '#2a0206', 4, false, true);
+
+    const zone = this.add
+      .zone(centerX, y, btnWidth, btnHeight)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    zone.on('pointerdown', () => {
+      this.tweens.add({
+        targets: [bg, label],
+        scale: 0.94,
+        duration: 80,
+        yoyo: true,
+        onComplete: () => {
+          clearRun();
+          this.scene.start('Game');
+        },
+      });
+    });
   }
 }

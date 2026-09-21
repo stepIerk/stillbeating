@@ -230,6 +230,110 @@ export const ENEMY_TIERS: EnemyTier[] = [
   },
 ];
 
+// ---------- Боссы глав ----------
+
+/** Атаки босса: каждая со своим телеграфом (характерное движение перед ударом) */
+export type BossAttackId = 'charge' | 'spikes' | 'slam' | 'groundAoe';
+
+export interface BossAttackDef {
+  id: BossAttackId;
+  name: string;
+  /** Сколько мс босс «заряжается» (телеграф) до нанесения урона */
+  telegraphMs: number;
+  /** Сколько мс длится сама атака */
+  activeMs: number;
+  /** Пауза после атаки (мс) */
+  recoverMs: number;
+  /** Множитель урона босса */
+  damageMult: number;
+  /** Радиус поражения (шипы, удар по территории, зона рывка), px */
+  radius?: number;
+  /** Дальность рывка (px) */
+  distance?: number;
+  /** Вес выбора среди доступных атак */
+  weight: number;
+}
+
+/** Параметры дальнего боя босса (если стреляет) */
+export interface BossDef {
+  id: string;
+  name: string;
+  /** Базовое HP (масштабируется главой) */
+  hp: number;
+  damage: number;
+  speed: number;
+  radius: number;
+  color: number;
+  /** Опыт и золото за убийство (до множителя главы) */
+  xp: number;
+  gold: number;
+  /** Атаки босса (порядок не важен — выбираются по весу) */
+  attacks: BossAttackDef[];
+  /** Дистанция, на которой босс останавливается и бьёт (в упор, если не задана) */
+  attackRange?: number;
+}
+
+/** Общий набор атак: один и тот же у разных боссов, пока босс один */
+const STANDARD_BOSS_ATTACKS: BossAttackDef[] = [
+  {
+    id: 'charge', name: 'РЫВОК', telegraphMs: 620, activeMs: 420, recoverMs: 900,
+    damageMult: 1.4, distance: 520, radius: 96, weight: 30,
+  },
+  {
+    id: 'spikes', name: 'ШИПЫ', telegraphMs: 700, activeMs: 220, recoverMs: 1000,
+    damageMult: 1.1, radius: 300, weight: 28,
+  },
+  {
+    id: 'slam', name: 'СИЛЬНЫЙ УДАР', telegraphMs: 800, activeMs: 200, recoverMs: 950,
+    damageMult: 2.2, radius: 150, weight: 24,
+  },
+  {
+    id: 'groundAoe', name: 'УДАР ПО ЗЕМЛЕ', telegraphMs: 900, activeMs: 260, recoverMs: 1100,
+    damageMult: 1.6, radius: 190, weight: 26,
+  },
+];
+
+/**
+ * Боссы по главам: `bossForChapter` берёт босса циклически, поэтому новых
+ * боссов достаточно добавить в этот массив — главы подхватят их сами.
+ */
+export const BOSSES: BossDef[] = [
+  {
+    id: 'devourer', name: 'ПОЖИРАТЕЛЬ', hp: 900, damage: 26, speed: 78,
+    radius: 58, color: 0xd81b60, xp: 320, gold: 210,
+    attacks: STANDARD_BOSS_ATTACKS,
+  },
+];
+
+/** Босс, назначенный на главу (циклически по массиву BOSSES) */
+export function bossForChapter(chapter: number): BossDef {
+  const idx = (Math.max(1, chapter) - 1) % BOSSES.length;
+  return BOSSES[idx];
+}
+
+/** Как далеко (после усиления главой) вырастают HP, урон и награда босса */
+export const BOSS_SCALING = {
+  hpPerChapter: 0.55,
+  damagePerChapter: 0.18,
+  /** Прибавка к опыту и золоту за каждую главу (доля) */
+  rewardPerChapter: 0.4,
+  /** Запас золота в монетах за убийство босса (доля от награды) */
+  coinShare: 0.6,
+  /** Гарантированные очки характеристик за убийство босса */
+  statPoints: 3,
+  /** Бонусные уровни: опыт покрывает минимум столько уровней сразу */
+  minLevels: 2,
+} as const;
+
+/** Босс всегда преследует игрока; на сердце переключается, только если оно настолько ближе */
+export const BOSS_TARGETING = {
+  /** Сердце считается «сильно ближе», если дистанция до него меньше этой доли от дистанции до игрока */
+  crystalBias: 0.6,
+  /** Дистанция удара в упор с зазором */
+  attackPad: 14,
+} as const;
+
+
 export const WAVES = {
   baseCount: 4,
   countPerWave: 2,
@@ -249,8 +353,31 @@ export const WAVES = {
   /** Рост скорости врагов: +scale за волну с потолком speedCap */
   speedScalePerWave: 0.015,
   speedCap: 1.5,
-  bossEvery: 5,
 };
+
+/**
+ * Главы: каждые wavesPerChapter волн открывается новая глава.
+ * Последняя волна главы — боссовая: приходит один босс без обычных врагов.
+ */
+export const CHAPTERS = {
+  wavesPerChapter: 20,
+};
+
+/** Номер главы по волне (волна 1-20 — глава 1, 21-40 — глава 2, ...) */
+export function chapterOf(wave: number): number {
+  return Math.floor((Math.max(1, wave) - 1) / CHAPTERS.wavesPerChapter) + 1;
+}
+
+/** Волна — последняя в главе, на ней приходит босс */
+export function isChapterBossWave(wave: number): boolean {
+  return wave > 0 && wave % CHAPTERS.wavesPerChapter === 0;
+}
+
+/** Сколько волн главы пройдено (0..wavesPerChapter) */
+export function chapterWaveIndex(wave: number): number {
+  const w = Math.max(1, wave);
+  return ((w - 1) % CHAPTERS.wavesPerChapter) + 1;
+}
 
 /** Число врагов в волне: аркадный рост, бесконечный до потолка maxCount */
 export function waveEnemyCount(wave: number): number {
