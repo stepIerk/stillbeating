@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DROP, MARKET } from '../render/palette';
+import { DROP, GROWTH } from '../render/palette';
 import ScrollArea from './ScrollArea';
 
 const FONT = 'Arial, sans-serif';
@@ -15,20 +15,21 @@ const RARITY_ACCENTS: Record<string, number> = {
 };
 
 /**
- * Стиль окна лавки: сама лавка — живая клетка, поэтому окно выглядит как её
- * нутро — тёмная плоть под светлой мембраной, карточки-вакуоли с товаром.
- * Яркость подобрана прежней: надписи, цены и цвета редкости читаются так же.
+ * Стиль окна лавки: на карте лавка — нарост-пещера в плоти, поэтому окно
+ * выглядит как её нутро — тёмное мясо под светлой мембраной, карточки-витрины
+ * с товаром. Яркость подобрана прежней: надписи, цены и цвета редкости
+ * читаются так же.
  */
 const WINDOW = {
   /** Нутро лавки — основа панели */
   panel: 0x281019,
-  /** Просвет цитоплазмы под мембраной */
+  /** Просвет мяса под мембраной */
   panelInner: 0x371721,
   /** Ярлык активной вкладки */
   tab: 0x45222e,
-  /** Вакуоль — карточка товара */
+  /** Витрина — карточка товара */
   card: 0x341722,
-  /** Вакуоль распроданного слота */
+  /** Витрина распроданного слота */
   cardSoldOut: 0x241117,
   /** Кнопка выхода */
   button: 0x45222e,
@@ -153,13 +154,13 @@ export default class ShopPanel {
     bg.fillRoundedRect(left, panelTop, panelWidth, panelHeight, 16);
     bg.fillStyle(WINDOW.panelInner, 1);
     bg.fillRoundedRect(left + 6, panelTop + 6, panelWidth - 12, panelHeight - 12, 13);
-    // Вакуоли в глубине окна — панель выглядит как нутро живой клетки
-    bg.fillStyle(MARKET.vesicle, 0.08);
+    // Бугры мяса в глубине окна — панель выглядит как нутро нароста
+    bg.fillStyle(GROWTH.flesh, 0.08);
     bg.fillCircle(left + 40, panelTop + 130, 56);
     bg.fillCircle(left + panelWidth - 46, panelTop + panelHeight * 0.55, 68);
     bg.fillCircle(left + 26, panelTop + panelHeight - 96, 44);
     // Светлая мембрана по кромке и золотая жила внутри — золото лавки
-    bg.lineStyle(2, MARKET.membrane, 0.4);
+    bg.lineStyle(2, GROWTH.membrane, 0.4);
     bg.strokeRoundedRect(left, panelTop, panelWidth, panelHeight, 16);
     bg.lineStyle(1, DROP.gold, 0.3);
     bg.strokeRoundedRect(left + 6, panelTop + 6, panelWidth - 12, panelHeight - 12, 13);
@@ -238,7 +239,7 @@ export default class ShopPanel {
       if (active) {
         gfx.fillStyle(WINDOW.tab, 1);
         gfx.fillRoundedRect(x - tabWidth / 2 + 3, tabY - 15, tabWidth - 6, 30, 8);
-        gfx.lineStyle(1.5, MARKET.membrane, 0.5);
+        gfx.lineStyle(1.5, GROWTH.membrane, 0.5);
         gfx.strokeRoundedRect(x - tabWidth / 2 + 3, tabY - 15, tabWidth - 6, 30, 8);
         gfx.lineStyle(1, DROP.gold, 0.7);
         gfx.strokeRoundedRect(x - tabWidth / 2 + 5, tabY - 13, tabWidth - 10, 26, 7);
@@ -288,8 +289,8 @@ export default class ShopPanel {
     card.fillRoundedRect(x - w / 2, y - h / 2, w, h, 12);
     card.lineStyle(2, option.soldOut ? 0x4a4a55 : accent, option.soldOut ? 0.4 : disabled ? 0.4 : 0.9);
     card.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 12);
-    // Тонкая мембрана внутри — карточка читается как вакуоль с товаром
-    card.lineStyle(1, MARKET.vesicleHi, option.soldOut ? 0.08 : 0.16);
+    // Тонкая мембрана внутри — карточка читается как витрина с товаром
+    card.lineStyle(1, GROWTH.membrane, option.soldOut ? 0.08 : 0.16);
     card.strokeRoundedRect(x - w / 2 + 3, y - h / 2 + 3, w - 6, h - 6, 10);
     content.add(card);
 
@@ -372,7 +373,7 @@ export default class ShopPanel {
     const bg = this.scene.add.graphics();
     bg.fillStyle(WINDOW.button, 1);
     bg.fillRoundedRect(x - w / 2, y - h / 2, w, h, 12);
-    bg.lineStyle(1.5, MARKET.membrane, 0.35);
+    bg.lineStyle(1.5, GROWTH.membrane, 0.35);
     bg.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 12);
     container.add(bg);
 

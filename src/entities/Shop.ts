@@ -3,10 +3,14 @@ import { SHOP } from '../config/balance';
 import { DROP } from '../render/palette';
 
 /**
- * Лавка-меняла на карте — макрофаг-маркитант: старая клетка тела, вросшая в
- * ткань. Открывается ударом (атакой) рядом с ней — внутри игра ставится на
- * паузу и показывается окно покупок. Платит лавка золотом-лимфой, тем же,
- * что выпадает из паразитов (DROP.gold).
+ * Лавка-нора на карте — пещера в плоти. В мышце вздулась бугристая масса с
+ * горбом-насыпью, мясо разошлось широкой аркой: внутри темно, горит жёлтый
+ * свет, на мясистом прилавке ровным рядом разложен товар — золото-лимфа,
+ * склянка с лимфой, клык паразита, спора и нервный узел, а с потолка норы
+ * свисают полотнища-вывески с крестом: видно издалека, что это лавка, а не
+ * пасть паразита. Открывается ударом (атакой) рядом с ней — внутри игра
+ * ставится на паузу и показывается окно покупок. Платит лавка золотом-лимфой,
+ * тем же, что выпадает из паразитов (DROP.gold).
  */
 export default class Shop extends Phaser.GameObjects.Image {
   private glow: Phaser.GameObjects.Arc;
@@ -17,7 +21,8 @@ export default class Shop extends Phaser.GameObjects.Image {
     scene.add.existing(this);
     this.setDepth(6);
 
-    this.glow = scene.add.circle(x, y + 6, SHOP.glowRadius, DROP.gold, 0.08).setDepth(5);
+    // Свечение вокруг лавки: цвет того же золота, что горит внутри норы
+    this.glow = scene.add.circle(x, y + 7, SHOP.glowRadius, DROP.gold, 0.08).setDepth(5);
 
     scene.tweens.add({
       targets: this.glow,
@@ -29,14 +34,14 @@ export default class Shop extends Phaser.GameObjects.Image {
       ease: 'Sine.easeInOut',
     });
 
-    // Вывеска смонтирована над узлом — чтобы лавку было видно издалека
+    // Вывеска висит над наростом — чтобы лавку было видно издалека
     scene.add
-      .text(x, y - 62, 'ЛАВКА', {
+      .text(x, y - 74, 'ЛАВКА', {
         fontFamily: 'Arial, sans-serif',
         fontSize: '16px',
         fontStyle: 'bold',
         color: '#ffca28',
-        // Тёмная обводка: вывеска лежит над светлой клеткой-менялой
+        // Тёмная обводка: вывеска лежит над мясом нароста
         stroke: '#2a0d12',
         strokeThickness: 4,
       })

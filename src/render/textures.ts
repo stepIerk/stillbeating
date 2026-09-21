@@ -6,7 +6,7 @@ import {
   WALL_THICKNESS,
   WORLD_VISUALS,
 } from '../config/balance';
-import { BODY, CELL, DROP, FLUID, HEART, MARKET, PARASITE, VESSEL } from './palette';
+import { BODY, CELL, DROP, FLUID, GROWTH, HEART, PARASITE, VESSEL } from './palette';
 
 /**
  * Все текстуры игры рисуются простыми фигурами (круги, линии) в Graphics и
@@ -687,168 +687,324 @@ export function buildDropTextures(g: Phaser.GameObjects.Graphics): void {
 }
 
 /**
- * Лавка-меняла на карте — макрофаг-маркитант. Старая клетка тела, вросшая в
- * ткань: за трофеи паразитов (клыки, споры, нервные узлы) она платит золотой
- * лимфой. При мелком зуме силуэт должен читаться как лавка, поэтому в текстуре
- * четыре крупные формы — тело клетки с ресничками вместо навеса, тёмное
- * ядро-торговец с глазами, вакуоли с товаром и выдвинутая вперёд
- * псевдоподия-прилавок с золотом.
+ * Лавка на карте — нора-нарост в теле бога. Материал тот же, что у мышц-стен
+ * (палитра GROWTH), но силуэт выверен вручную и симметричен: ни одного
+ * случайного бугра, поэтому нора выглядит построенной, а не налепленной.
  *
- * Ключ и размер текстуры не меняются: по ним строится свечение-подсказка
- * (SHOP.glowRadius) и вывеска «ЛАВКА» над клеткой.
+ * Что видно игроку: бугристая масса с горбом-насыпью сверху, под ней —
+ * широкая арка входа с влажной мембраной по кромке. Внутри темно, из глубины
+ * сочится тёплый жёлтый свет, стоит мясистый прилавок, а на нём ровным рядом
+ * разложен товар теми же цветами, что лут с паразитов: золото-лимфа, склянка
+ * с лимфой, клык-оружие, спора-навык и нервный узел. С потолка норы свисают
+ * три полотнища-вывески со светлым крестом и две лампы-светлячка — по ним
+ * нора читается как лавка, а не как пасть паразита.
+ *
+ * Ключ текстуры по-прежнему 'shop': на него завязаны сущность лавки, свечение
+ * (SHOP.glowRadius) и подсказка про удар по ней. Печётся с масштабом 1.2
+ * (≈139×115): нора крупнее прочих объектов, чтобы читалась с любого зума, а
+ * вывеска «ЛАВКА» висит над её насыпью.
  */
 export function buildShopTexture(g: Phaser.GameObjects.Graphics): void {
+  /** Лавка крупнее остальных объектов: нора должна читаться с любого зума */
+  const scale = 1.2;
   const width = 116;
   const height = 96;
   const cx = width / 2;
+  /** Линия пола: на ней стоит нора, и к ней сходятся все дуги */
+  const baseY = 88;
 
-  // Подошва: клетка вросла в ткань псевдоподиями — тёмная кромка и тяжи-корни
-  g.fillStyle(MARKET.bodyDeep, 1);
-  g.fillEllipse(cx, 78, 104, 30);
-  g.lineStyle(2.5, VESSEL.vein, 0.85);
+  const v = (px: number, py: number): Phaser.Math.Vector2 => new Phaser.Math.Vector2(px, py);
+  /** Тот же силуэт, раздутый от центра подошвы: контур, тень кромки и мясо */
+  const inflated = (points: readonly Phaser.Math.Vector2[], k: number): Phaser.Math.Vector2[] =>
+    points.map((p) => v(cx + (p.x - cx) * k, baseY + (p.y - baseY) * k));
+
+  // Подошва: нора проросла в ткань — тёмное пятно и два корня в пол
+  g.fillStyle(GROWTH.rim, 0.55);
+  g.fillEllipse(cx, 90, 108, 16);
+  g.lineStyle(2, VESSEL.vein, 0.7);
   strokePath(g, [
-    [cx - 34, 88],
-    [cx - 46, 92],
+    [cx - 32, 89],
+    [cx - 45, 92],
   ]);
   strokePath(g, [
-    [cx + 34, 88],
-    [cx + 46, 92],
+    [cx + 32, 89],
+    [cx + 45, 92],
   ]);
 
-  // Тело клетки: сглаженный контур с лопастями-псевдоподиями по бокам —
-  // это живая клетка, а не ровный гриб
-  const tips: Array<[number, number]> = [
-    [cx, 12],
-    [cx + 20, 14],
-    [cx + 38, 24],
-    [cx + 46, 40],
-    [cx + 40, 54],
-    [cx + 46, 68],
-    [cx + 30, 84],
-    [cx, 88],
-    [cx - 30, 84],
-    [cx - 46, 68],
-    [cx - 40, 54],
-    [cx - 46, 40],
-    [cx - 38, 24],
-    [cx - 20, 14],
-  ];
-  const rim = smoothClosedPath(tips);
-  const body = smoothClosedPath(
-    tips.map(([x, y]) => [cx + (x - cx) * 0.9, 50 + (y - 50) * 0.9] as [number, number]),
+  // Силуэт норы: масса с горбом-насыпью сверху. Один и тот же контур в трёх
+  // проходах — тёмная граница с тканью, тень кромки и мясо — даёт цельный
+  // силуэт без граней, а симметрия точек держит форму построенной
+  const mound = smoothClosedPath([
+    [cx - 51, 86],
+    [cx - 53, 62],
+    [cx - 47, 42],
+    [cx - 35, 26],
+    [cx - 20, 15],
+    [cx - 7, 10],
+    [cx + 7, 10],
+    [cx + 20, 15],
+    [cx + 35, 26],
+    [cx + 47, 42],
+    [cx + 53, 62],
+    [cx + 51, 86],
+    [cx + 30, 92],
+    [cx, 93],
+    [cx - 30, 92],
+  ]);
+  g.fillStyle(GROWTH.rim, 1);
+  g.fillPoints(inflated(mound, 1.05), true);
+  g.fillStyle(GROWTH.fleshDeep, 1);
+  g.fillPoints(inflated(mound, 1.02), true);
+  g.fillStyle(GROWTH.flesh, 1);
+  g.fillPoints(mound, true);
+
+  // Блик по верхушке насыпи: свет падает сверху — мясо там светлее.
+  // Верхние дуги того же контура идут внутрь силуэта, поэтому блик не
+  // вылезает на фон, как это делали отдельные эллипсы
+  g.lineStyle(4, GROWTH.fleshHi, 0.2);
+  g.strokePoints(
+    inflated(mound, 0.9).filter((p) => p.y < 30),
+    false,
   );
-  g.fillStyle(MARKET.cytoplasmDeep, 1);
-  g.fillPoints(rim, true);
-  g.fillStyle(MARKET.cytoplasm, 1);
-  g.fillPoints(body, true);
-  g.lineStyle(2, MARKET.membrane, 0.55);
-  g.strokePoints(rim, true);
-  // Блик сверху — клетка выглядит выпуклой
-  g.fillStyle(MARKET.vesicleHi, 0.16);
-  g.fillEllipse(cx, 34, 58, 28);
+  // Складка под насыпью: горб отделён от мяса вокруг входа
+  g.lineStyle(1.4, GROWTH.fleshDeep, 0.5);
+  g.strokePoints(
+    inflated(mound, 0.86).filter((p) => p.y < 33),
+    false,
+  );
 
-  // Реснички по верхней дуге: тот же силуэт «навеса», что был у прежней лавки
-  g.lineStyle(1.6, MARKET.membrane, 0.65);
-  for (let i = 0; i < rim.length; i += 5) {
-    const point = rim[i];
-    if (point.y > 44) {
-      continue;
-    }
-    const angle = Math.atan2(point.y - 50, point.x - cx);
-    const length = 7 + Phaser.Math.FloatBetween(0, 3);
-    strokePath(g, [
-      [point.x, point.y],
-      [point.x + Math.cos(angle) * length, point.y + Math.sin(angle) * length],
-    ]);
-  }
-
-  // Ядро-торговец: тёмный комок с бледными глазами и светлым ядрышком
-  const nucleus = smoothClosedPath(toPairs(blobPoints(cx - 2, 48, 15, 10, 0.16)));
-  g.fillStyle(MARKET.nucleus, 1);
-  g.fillPoints(nucleus, true);
-  g.fillStyle(MARKET.nucleusHi, 0.45);
-  g.fillEllipse(cx + 4, 43, 11, 7);
-  g.fillStyle(MARKET.eye, 1);
-  g.fillEllipse(cx - 9, 48, 5, 7);
-  g.fillEllipse(cx + 5, 48, 5, 7);
-  g.fillStyle(MARKET.pupil, 1);
-  g.fillCircle(cx - 8.6, 48.6, 1.5);
-  g.fillCircle(cx + 5.4, 48.6, 1.5);
-
-  // Вакуоли-витрины: в них клетка держит товар — клык, спору и каплю лимфы
-  const vesicle = (x: number, y: number, radius: number): void => {
-    g.fillStyle(MARKET.vesicle, 0.9);
-    g.fillCircle(x, y, radius);
-    g.lineStyle(1.5, MARKET.vesicleHi, 0.7);
-    g.strokeCircle(x, y, radius);
+  /** Бугор насыпи: тень-кольцо, мясо и блик — рельеф, а не заплатка */
+  const bump = (x: number, y: number, r: number): void => {
+    g.fillStyle(GROWTH.fleshDeep, 0.9);
+    g.fillCircle(x, y, r);
+    g.fillStyle(GROWTH.flesh, 1);
+    g.fillCircle(x, y - 0.8, r * 0.78);
+    g.fillStyle(GROWTH.fleshHi, 0.4);
+    g.fillCircle(x - r * 0.25, y - r * 0.5, r * 0.3);
   };
-  vesicle(cx + 30, 34, 9);
-  vesicle(cx - 30, 38, 9.5);
-  vesicle(cx + 32, 54, 8.5);
+  // Три бугра на насыпи: два по краям и один по центру
+  bump(cx - 24, 31, 7);
+  bump(cx + 22, 29, 7);
+  bump(cx, 19, 6);
 
-  // Клык паразита в первой вакуоли
-  g.fillStyle(DROP.fangDeep, 1);
-  g.fillPoints(
-    [
-      new Phaser.Math.Vector2(cx + 26, 39),
-      new Phaser.Math.Vector2(cx + 31, 29),
-      new Phaser.Math.Vector2(cx + 34, 38),
-    ],
-    true,
-  );
-  g.fillStyle(DROP.fang, 1);
-  g.fillPoints(
-    [
-      new Phaser.Math.Vector2(cx + 27.6, 38),
-      new Phaser.Math.Vector2(cx + 31, 31.5),
-      new Phaser.Math.Vector2(cx + 32.4, 37.6),
-    ],
-    true,
-  );
-  // Спора во второй
-  g.fillStyle(DROP.sporeDeep, 1);
-  g.fillEllipse(cx - 30, 38, 9, 10);
-  g.fillStyle(DROP.spore, 1);
-  g.fillEllipse(cx - 30, 38, 6.5, 7.5);
-  g.fillStyle(DROP.sporeHi, 0.85);
-  g.fillCircle(cx - 30, 36.8, 2);
-  // Капля лимфы в третьей
-  g.fillStyle(DROP.goldDeep, 1);
-  g.fillCircle(cx + 32, 54.6, 5.4);
-  g.fillStyle(DROP.gold, 1);
-  g.fillCircle(cx + 32, 54, 4.6);
-  g.fillStyle(DROP.goldHi, 0.9);
-  g.fillEllipse(cx + 30.4, 52, 3.4, 2.2);
+  // Вены: нора срослась с телом и питается его кровью
+  g.lineStyle(2, VESSEL.vein, 0.55);
+  strokePath(g, [
+    [cx - 46, 84],
+    [cx - 50, 66],
+    [cx - 45, 48],
+    [cx - 36, 36],
+  ]);
+  strokePath(g, [
+    [cx + 46, 84],
+    [cx + 50, 66],
+    [cx + 45, 48],
+    [cx + 36, 36],
+  ]);
 
-  // Прилавок: клетка выдвинула вперёд широкую псевдоподию — на ней товар
-  g.fillStyle(MARKET.cytoplasmDeep, 1);
-  g.fillEllipse(cx, 74, 94, 24);
-  g.fillStyle(MARKET.cytoplasm, 1);
-  g.fillEllipse(cx, 71, 88, 19);
-  g.lineStyle(1.5, MARKET.membrane, 0.45);
-  g.strokeEllipse(cx, 70, 80, 12);
+  // Арка входа: мясо разошлось широкой норой. Слои от кромки к глубине —
+  // десна, провал и дальняя тьма: внутри норы темно, свет идёт от прилавка
+  const arch: Array<[number, number]> = [
+    [cx - 38, baseY],
+    [cx - 38, 62],
+    [cx - 34, 48],
+    [cx - 24, 39],
+    [cx - 10, 35],
+    [cx + 10, 35],
+    [cx + 24, 39],
+    [cx + 34, 48],
+    [cx + 38, 62],
+    [cx + 38, baseY],
+  ];
+  const mawEdge = smoothClosedPath(arch);
+  const mawMid = inflated(mawEdge, 0.93);
+  const mawDeep = inflated(mawEdge, 0.85);
+  const mawVoid = inflated(mawEdge, 0.74);
+  g.fillStyle(GROWTH.gum, 1);
+  g.fillPoints(mawEdge, true);
+  g.fillStyle(GROWTH.maw, 1);
+  g.fillPoints(mawMid, true);
+  g.fillStyle(GROWTH.mawFar, 0.6);
+  g.fillPoints(mawDeep, true);
+  g.fillStyle(GROWTH.mawFar, 0.9);
+  g.fillPoints(mawVoid, true);
 
-  // Тёплый свет витрины: золото подсвечивает прилавок снизу
-  g.fillStyle(DROP.gold, 0.18);
-  g.fillEllipse(cx, 66, 74, 17);
+  // Тёплый свет из глубины: у прилавка горит жёлтый — витрину видно издалека
+  g.fillStyle(DROP.gold, 0.07);
+  g.fillEllipse(cx, 84, 76, 22);
+  g.fillStyle(DROP.gold, 0.11);
+  g.fillEllipse(cx, 80, 60, 16);
+  g.fillStyle(DROP.gold, 0.16);
+  g.fillEllipse(cx, 77, 44, 11);
 
-  // Золото-лимфа на прилавке: горка слева, ряд капель по центру и монета справа
+  // Кромка входа: светлая влажная мембрана по разошедшемуся мясу
+  g.lineStyle(4.5, GROWTH.gum, 0.5);
+  g.strokePoints(mawEdge, true);
+  g.lineStyle(2, GROWTH.membrane, 0.6);
+  g.strokePoints(mawEdge, true);
+  g.lineStyle(1.2, GROWTH.membrane, 0.16);
+  g.strokePoints(mawMid, true);
+
+  // Прилавок: мясо выпятилось в полость — плита, на которой лежит товар
+  g.fillStyle(GROWTH.mawFar, 0.5);
+  g.fillEllipse(cx, 86, 68, 12);
+  g.fillStyle(GROWTH.fleshDeep, 1);
+  g.fillEllipse(cx, 84, 66, 12);
+  g.fillStyle(GROWTH.shelf, 1);
+  g.fillEllipse(cx, 80, 62, 8);
+  g.lineStyle(1.6, GROWTH.shelfHi, 0.7);
+  g.strokeEllipse(cx, 77, 56, 5);
+
+  /** Монета-лимфа: тем же цветом, что падает с паразитов */
   const coin = (x: number, y: number, r: number): void => {
     g.fillStyle(DROP.goldDeep, 1);
-    g.fillCircle(x, y + 1, r);
+    g.fillCircle(x, y + 0.7, r);
     g.fillStyle(DROP.gold, 1);
     g.fillCircle(x, y, r * 0.9);
     g.fillStyle(DROP.goldHi, 0.85);
     g.fillEllipse(x - r * 0.3, y - r * 0.35, r * 0.72, r * 0.42);
   };
-  coin(cx - 30, 66, 8.5);
-  coin(cx - 22, 69, 6.5);
-  coin(cx - 12, 68, 5.5);
-  coin(cx + 2, 70, 6);
-  coin(cx + 13, 69, 5);
-  coin(cx + 27, 67, 7.5);
 
-  g.generateTexture('shop', width, height);
+  /** Клык паразита — оружие на прилавке. dir = 1 — остриё вверх, −1 — вниз */
+  const fang = (x: number, y: number, size: number, lean: number, dir: number): void => {
+    g.fillStyle(DROP.fangDeep, 1);
+    g.fillPoints(
+      [
+        v(x - size * 0.42, y + size * 0.1 * dir),
+        v(x + lean, y - size * dir),
+        v(x + size * 0.42, y + size * 0.1 * dir),
+      ],
+      true,
+    );
+    g.fillStyle(DROP.fang, 1);
+    g.fillPoints(
+      [
+        v(x - size * 0.26, y + size * 0.02 * dir),
+        v(x + lean * 0.8, y - size * 0.78 * dir),
+        v(x + size * 0.26, y + size * 0.02 * dir),
+      ],
+      true,
+    );
+    g.lineStyle(1.1, DROP.fangHi, 0.8);
+    strokePath(g, [
+      [x + lean * 0.55, y - size * 0.62 * dir],
+      [x + lean * 0.9, y - size * 0.92 * dir],
+    ]);
+  };
+  /** Склянка с лимфой: тело, горлышко и пробка — товар узнаётся как товар */
+  const vial = (x: number, y: number, h: number, w: number): void => {
+    g.fillStyle(GROWTH.bannerDeep, 1);
+    g.fillEllipse(x, y - h * 0.34, w, h * 0.68);
+    g.fillRect(x - w * 0.17, y - h, w * 0.34, h * 0.42);
+    g.fillStyle(GROWTH.banner, 1);
+    g.fillEllipse(x, y - h * 0.36, w * 0.78, h * 0.52);
+    g.fillRect(x - w * 0.12, y - h, w * 0.24, h * 0.38);
+    g.fillStyle(GROWTH.membrane, 0.75);
+    g.fillEllipse(x - w * 0.16, y - h * 0.44, w * 0.2, h * 0.26);
+    g.fillStyle(GROWTH.membrane, 0.9);
+    g.fillEllipse(x, y - h - 1, w * 0.5, 2.6);
+  };
+
+  // Витрина: ровный ряд товара по прилавку — так нора читается как лавка
+  coin(cx - 26, 75, 4.6);
+  coin(cx - 21, 75.5, 3.8);
+  coin(cx - 23.5, 71, 5);
+  vial(cx - 9.5, 76, 13, 7);
+  fang(cx, 76, 13, 3, 1);
+  // Спора на черенке — навык
+  g.fillStyle(DROP.sporeDeep, 1);
+  g.fillEllipse(cx + 11, 69.5, 11, 13);
+  g.fillStyle(DROP.spore, 1);
+  g.fillEllipse(cx + 11, 69.5, 9, 10.5);
+  g.fillStyle(DROP.sporeHi, 0.8);
+  g.fillCircle(cx + 11, 68, 2.6);
+  g.lineStyle(1.6, DROP.sporeDeep, 0.9);
+  strokePath(g, [
+    [cx + 11, 76],
+    [cx + 11, 79],
+  ]);
+  // Нервный узел — очко характеристик
+  g.lineStyle(1.6, DROP.nerveDeep, 0.85);
+  for (let i = 0; i < 5; i++) {
+    const angle = (i / 5) * Math.PI * 2 + 0.4;
+    strokePath(g, [
+      [cx + 22 + Math.cos(angle) * 3, 72 + Math.sin(angle) * 3],
+      [cx + 22 + Math.cos(angle) * 5.4, 72 + Math.sin(angle) * 5.4],
+    ]);
+  }
+  g.fillStyle(DROP.nerveDeep, 1);
+  g.fillCircle(cx + 22, 72, 4.6);
+  g.fillStyle(DROP.nerve, 1);
+  g.fillCircle(cx + 22, 72, 3.4);
+
+
+  /**
+   * Вывеска: полотнище с крестом свисает с потолка норы на тяже — по нему
+   * лавку видно издалека, и её не спутать с пастью паразита
+   */
+  const banner = (x: number, top: number, w: number, len: number): void => {
+    g.lineStyle(1.2, GROWTH.membrane, 0.5);
+    strokePath(g, [
+      [x, top - 3],
+      [x, top],
+    ]);
+    g.fillStyle(GROWTH.bannerDeep, 1);
+    g.fillPoints(
+      [
+        v(x - w / 2 - 1, top - 1),
+        v(x + w / 2 + 1, top - 1),
+        v(x + w / 2 + 1, top + len + 1),
+        v(x, top + len - 3.5),
+        v(x - w / 2 - 1, top + len + 1),
+      ],
+      true,
+    );
+    g.fillStyle(GROWTH.banner, 1);
+    g.fillPoints(
+      [
+        v(x - w / 2, top),
+        v(x + w / 2, top),
+        v(x + w / 2, top + len),
+        v(x, top + len - 3.5),
+        v(x - w / 2, top + len),
+      ],
+      true,
+    );
+    // Крест на полотнище — светлая мембрана, знак торговли
+    g.fillStyle(GROWTH.membrane, 0.9);
+    g.fillRect(x - 1, top + 3, 2, len - 8);
+    g.fillRect(x - w / 2 + 2.5, top + len * 0.36, w - 5, 2);
+  };
+  // Три полотнища по потолку норы: центральное длиннее боковых
+  banner(cx, 39, 15, 21);
+  banner(cx - 23, 42, 12, 17);
+  banner(cx + 23, 42, 12, 17);
+
+  /** Лампа-светлячок на тяже: горит тем же золотом, что лимфа */
+  const lamp = (x: number, top: number, y: number): void => {
+    g.lineStyle(1.2, GROWTH.membrane, 0.5);
+    strokePath(g, [
+      [x, top],
+      [x, y - 4],
+    ]);
+    g.fillStyle(DROP.gold, 0.12);
+    g.fillCircle(x, y, 7);
+    g.fillStyle(DROP.goldDeep, 1);
+    g.fillCircle(x, y, 3.2);
+    g.fillStyle(DROP.gold, 1);
+    g.fillCircle(x, y, 2.4);
+    g.fillStyle(DROP.goldHi, 0.9);
+    g.fillCircle(x - 0.7, y - 0.7, 1);
+  };
+  // Лампы висят между полотнищами, у самого потолка норы
+  lamp(cx - 12, 35.5, 53);
+  lamp(cx + 12, 35.5, 53);
+
+  // Рисунок тот же, но печётся крупнее. Масштаб сбрасываем сразу — тем же
+  // Graphics дальше рисуются остальные текстуры
+  g.setScale(scale);
+  g.generateTexture('shop', Math.round(width * scale), Math.round(height * scale));
+  g.setScale(1);
   g.clear();
 }
 
