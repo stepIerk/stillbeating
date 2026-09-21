@@ -155,7 +155,8 @@ export const REGEN = { hpBase: 0.2, manaBase: 0.5 };
 
 export const CRYSTAL_STATS = {
   maxHp: 500,
-  radius: 42,
+  /** Радиус цели: по нему враги бьют сердце и по нему же строится его тело */
+  radius: 46,
   /** Смещение центра кристалла от нижней стены */
   offsetFromBottom: 110,
 };

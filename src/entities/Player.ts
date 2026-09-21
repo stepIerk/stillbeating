@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { PLAYER_STATS, PLAYER_VISUALS } from '../config/balance';
 import type RunState from '../state/RunState';
 import { computeStats, type DerivedStats } from '../systems/DerivedStats';
+import { VITAL } from '../render/palette';
 import HealthBar from './HealthBar';
 
 /** Игрок: здоровье/мана, атака по кулдауну, щит и берсерк, респавн */
@@ -88,22 +89,22 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
     // Еле заметный радиус атаки — помогает держать дистанцию
     this.rangeCircle = scene.add
-      .circle(x, y, this.attackRange, 0x4fc3f7, 0.05)
-      .setStrokeStyle(1, 0x4fc3f7, 0.25)
+      .circle(x, y, this.attackRange, VITAL.hp, 0.05)
+      .setStrokeStyle(1, VITAL.hp, 0.25)
       .setDepth(5);
 
     this.healthBar = new HealthBar(scene, {
       width: 60,
       height: 7,
       yOffset: -46,
-      color: 0x4fc3f7,
+      color: VITAL.hp,
       alwaysVisible: true,
     });
     this.manaBar = new HealthBar(scene, {
       width: 60,
       height: 4,
       yOffset: -38,
-      color: 0xb39ddb,
+      color: VITAL.mana,
       alwaysVisible: true,
     });
     this.healthBar.setValue(this.hp, this.maxHp);

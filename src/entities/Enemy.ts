@@ -9,6 +9,7 @@ import {
   type EnemyTierId,
 } from '../config/balance';
 import { chooseTarget, type EnemyRole, type EnemyTarget } from '../systems/Targeting';
+import { VESSEL } from '../render/palette';
 import HealthBar from './HealthBar';
 
 export type { EnemyRole, EnemyTarget };
@@ -69,7 +70,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Image {
       width: Math.max(26, tier.radius * 2),
       height: 5,
       yOffset: -tier.radius - 12,
-      color: 0xff5252,
+      color: VESSEL.wound,
     });
   }
 

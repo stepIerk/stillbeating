@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { DROP } from '../render/palette';
 import ScrollArea from './ScrollArea';
 
 const FONT = 'Arial, sans-serif';
@@ -130,7 +131,7 @@ export default class ShopPanel {
     const bg = this.scene.add.graphics();
     bg.fillStyle(0x14141f, 1);
     bg.fillRoundedRect(left, panelTop, panelWidth, panelHeight, 16);
-    bg.lineStyle(2, 0xffd54f, 0.5);
+    bg.lineStyle(2, DROP.gold, 0.5);
     bg.strokeRoundedRect(left, panelTop, panelWidth, panelHeight, 16);
     this.container.add(bg);
 
@@ -151,7 +152,7 @@ export default class ShopPanel {
           fontFamily: FONT,
           fontSize: '15px',
           fontStyle: 'bold',
-          color: '#ffd54f',
+          color: '#ffca28',
         })
         .setOrigin(1, 0.5),
     );
@@ -207,7 +208,7 @@ export default class ShopPanel {
       if (active) {
         gfx.fillStyle(0x2b2b3a, 1);
         gfx.fillRoundedRect(x - tabWidth / 2 + 3, tabY - 15, tabWidth - 6, 30, 8);
-        gfx.lineStyle(1, 0xffd54f, 0.6);
+        gfx.lineStyle(1, DROP.gold, 0.6);
         gfx.strokeRoundedRect(x - tabWidth / 2 + 3, tabY - 15, tabWidth - 6, 30, 8);
       }
       this.container?.add(gfx);

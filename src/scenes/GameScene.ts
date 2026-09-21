@@ -3,11 +3,9 @@ import {
   CONTROLS_HEIGHT,
   CRYSTAL_STATS,
   DROPS,
-  ENEMY_TIERS,
   GOLD,
   PLAYER_ATTACK_FX,
   PLAYER_STATS,
-  PLAYER_VISUALS,
   SHOP,
   SHOP_LEVELS,
   SKILLS,
@@ -24,8 +22,17 @@ import Crystal from '../entities/Crystal';
 import Enemy from '../entities/Enemy';
 import Player from '../entities/Player';
 import Shop from '../entities/Shop';
-import { BODY, VESSEL, VOID_CSS } from '../render/palette';
-import { buildWorldTextures } from '../render/textures';
+import { BODY, CELL, FLUID, HEART, VESSEL, VITAL, VOID_CSS } from '../render/palette';
+import {
+  buildDropTextures,
+  buildHeartGlowTexture,
+  buildHeartTexture,
+  buildParasiteTextures,
+  buildPlayerTextures,
+  buildProjectileTextures,
+  buildShopTexture,
+  buildWorldTextures,
+} from '../render/textures';
 import { getSafeAreaInsets } from '../utils/safeArea';
 
 /** Летящий заряд стрелка */
@@ -180,7 +187,12 @@ export default class GameScene extends Phaser.Scene {
       this.scene.stop('UI');
     });
   }
-/** Текстуры из простых фигур: мир-плоть, игрок, кристалл, лут и тиры врагов */
+
+  /**
+   * Текстуры из простых фигур: мир-плоть, лейкоцит-игрок, сердце бога,
+   * лут, лавка и паразиты. Фигуры рисуются в render/textures.ts, сцена
+   * только раскладывает их по местам.
+   */
   private createTextures(): void {
     const g = this.make.graphics({ x: 0, y: 0 }, false);
 
@@ -195,155 +207,13 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Игрок собран из простых фигур (см. entities/Player):
-    // тело — белый круг, поверх него отдельные лицо-овал и два овала-глаза.
-    const bodyR = PLAYER_VISUALS.bodyRadius;
-    const bodySize = (bodyR + 2) * 2;
-    const bodyC = bodySize / 2;
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(bodyC, bodyC, bodyR);
-    g.lineStyle(2, 0xdcdcdc, 1);
-    g.strokeCircle(bodyC, bodyC, bodyR - 1);
-    g.generateTexture('player', bodySize, bodySize);
-    g.clear();
-
-    // Лицо игрока — чёрный овал, чуть сплюснутый сверху и снизу
-    const faceW = PLAYER_VISUALS.faceRadiusX * 2;
-    const faceH = PLAYER_VISUALS.faceRadiusY * 2;
-    g.fillStyle(0x111111, 1);
-    g.fillEllipse(faceW / 2, faceH / 2, faceW, faceH);
-    g.generateTexture('player-face', faceW, faceH);
-    g.clear();
-
-    // Глаз игрока — белый овал, вытянутый по вертикали
-    const eyeW = PLAYER_VISUALS.eyeRadiusX * 2;
-    const eyeH = PLAYER_VISUALS.eyeRadiusY * 2;
-    g.fillStyle(0xffffff, 1);
-    g.fillEllipse(eyeW / 2, eyeH / 2, eyeW, eyeH);
-    g.generateTexture('player-eye', eyeW, eyeH);
-    g.clear();
-
-    // Снаряд атаки игрока — белая сфера: свечение слоями от края к ядру
-    const shotR = PLAYER_ATTACK_FX.shotRadius;
-    g.fillStyle(0xffffff, 0.1);
-    g.fillCircle(shotR, shotR, shotR);
-    g.fillStyle(0xffffff, 0.22);
-    g.fillCircle(shotR, shotR, shotR * 0.72);
-    g.fillStyle(0xffffff, 0.55);
-    g.fillCircle(shotR, shotR, shotR * 0.48);
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(shotR, shotR, shotR * 0.27);
-    g.generateTexture('player-shot', shotR * 2, shotR * 2);
-    g.clear();
-
-    // Кристалл — ромб с бликом
-    const size = 96;
-    const c = size / 2;
-    g.fillStyle(0x26c6da, 1);
-    g.fillPoints(
-      [
-        new Phaser.Math.Vector2(c, c - 42),
-        new Phaser.Math.Vector2(c + 30, c),
-        new Phaser.Math.Vector2(c, c + 42),
-        new Phaser.Math.Vector2(c - 30, c),
-      ],
-      true,
-    );
-    g.fillStyle(0x9ceaf3, 1);
-    g.fillPoints(
-      [
-        new Phaser.Math.Vector2(c, c - 24),
-        new Phaser.Math.Vector2(c + 16, c),
-        new Phaser.Math.Vector2(c, c + 24),
-        new Phaser.Math.Vector2(c - 16, c),
-      ],
-      true,
-    );
-    g.generateTexture('crystal', size, size);
-    g.clear();
-
-    // Монета
-    g.fillStyle(0xffca28, 1);
-    g.fillCircle(10, 10, 9);
-    g.lineStyle(2, 0xb28704, 1);
-    g.strokeCircle(10, 10, 8);
-    g.generateTexture('coin', 20, 20);
-    g.clear();
-
-    // Лут: очко характеристик (зелёный ромб)
-    g.fillStyle(0x8bc34a, 1);
-    g.fillPoints(
-      [new Phaser.Math.Vector2(12, 2), new Phaser.Math.Vector2(22, 12), new Phaser.Math.Vector2(12, 22), new Phaser.Math.Vector2(2, 12)],
-      true,
-    );
-    g.lineStyle(2, 0x33691e, 1);
-    g.strokePoints(
-      [new Phaser.Math.Vector2(12, 2), new Phaser.Math.Vector2(22, 12), new Phaser.Math.Vector2(12, 22), new Phaser.Math.Vector2(2, 12)],
-      true,
-    );
-    g.generateTexture('loot-point', 24, 24);
-    g.clear();
-
-    // Лут: оружие (оранжевый квадрат с мечом-полосой)
-    g.fillStyle(0xef6c00, 1);
-    g.fillRect(2, 2, 20, 20);
-    g.lineStyle(2, 0xffffff, 0.8);
-    g.strokeRect(2, 2, 20, 20);
-    g.fillStyle(0xfff8e1, 1);
-    g.fillRect(10, 5, 4, 12);
-    g.fillTriangle(8, 17, 16, 17, 12, 22);
-    g.generateTexture('loot-weapon', 24, 24);
-    g.clear();
-
-    // Лут: навык (фиолетовый треугольник)
-    g.fillStyle(0xb39ddb, 1);
-    g.fillTriangle(12, 2, 23, 22, 1, 22);
-    g.lineStyle(2, 0x4527a0, 1);
-    g.strokeTriangle(12, 2, 23, 22, 1, 22);
-    g.generateTexture('loot-skill', 24, 24);
-    g.clear();
-
-    // Лавка: корпус, крыша, монета-вывеска
-    g.fillStyle(0x6d4c41, 1);
-    g.fillRect(10, 42, 96, 46);
-    g.fillStyle(0xef6c00, 1);
-    g.fillTriangle(0, 46, 116, 46, 58, 2);
-    g.fillStyle(0xffd54f, 1);
-    g.fillCircle(58, 64, 15);
-    g.lineStyle(3, 0x8d6e63, 1);
-    g.strokeRect(10, 42, 96, 46);
-    g.generateTexture('shop', 116, 96);
-    g.clear();
-
-    // Враги по тирам (размер = диаметр тира)
-    for (const tier of ENEMY_TIERS) {
-      const r = tier.radius;
-      g.fillStyle(tier.color, 1);
-      g.fillCircle(r, r, r);
-      g.lineStyle(3, 0x000000, 0.3);
-      g.strokeCircle(r, r, r - 1.5);
-      g.fillStyle(0xffffff, 0.9);
-      g.fillCircle(r + r * 0.3, r - r * 0.15, Math.max(2, r * 0.22));
-      if (tier.id === 'shooter') {
-        // Отличимая внешность: «дуло» в центре корпуса
-        g.fillStyle(0x004d40, 1);
-        g.fillCircle(r, r, Math.max(3, r * 0.4));
-        g.fillStyle(0xb2fef7, 1);
-        g.fillCircle(r, r, Math.max(2, r * 0.22));
-      }
-      g.generateTexture(`enemy-${tier.id}`, r * 2, r * 2);
-      g.clear();
-    }
-
-    // Заряд стрелка: светящийся шар с ярким ядром
-    g.fillStyle(0xff8a65, 1);
-    g.fillCircle(8, 8, 8);
-    g.fillStyle(0xff5252, 1);
-    g.fillCircle(8, 8, 6);
-    g.fillStyle(0xfff3e0, 1);
-    g.fillCircle(8, 8, 3);
-    g.generateTexture('enemy-shot', 16, 16);
-    g.clear();
+    buildPlayerTextures(g);
+    buildProjectileTextures(g);
+    buildHeartTexture(g);
+    buildHeartGlowTexture(g);
+    buildDropTextures(g);
+    buildShopTexture(g);
+    buildParasiteTextures(g);
 
     g.destroy();
   }
@@ -1052,8 +922,8 @@ export default class GameScene extends Phaser.Scene {
       onComplete: () => flash.destroy(),
     });
 
-    // Брызги-капли
-    burst(this, x, y, 0xffffff, PLAYER_ATTACK_FX.splashCount, PLAYER_ATTACK_FX.splashSpread, 5);
+    // Брызги-капли плазмы
+    burst(this, x, y, CELL.body, PLAYER_ATTACK_FX.splashCount, PLAYER_ATTACK_FX.splashSpread, 5);
   }
 
   /** Отпечаток «хвоста» сферы: уменьшается и гаснет */
@@ -1221,7 +1091,7 @@ export default class GameScene extends Phaser.Scene {
   /** Визуал молнии: ломаная с лёгким дрожанием, быстро гаснет */
   private drawLightning(from: Phaser.Math.Vector2, to: Phaser.Math.Vector2): void {
     const line = this.add.graphics().setDepth(11);
-    line.lineStyle(3, 0x80deea, 0.9);
+    line.lineStyle(3, FLUID.plasmaTrail, 0.9);
     line.beginPath();
     line.moveTo(from.x, from.y);
     const steps = 4;
@@ -1246,8 +1116,8 @@ export default class GameScene extends Phaser.Scene {
 
   /** Нова: урон всем врагам в радиусе */
   private castNova(radius: number, damageMult: number, now: number): void {
-    // Визуал: расширяющееся кольцо
-    const ring = this.add.circle(this.player.x, this.player.y, 30, 0xb39ddb, 0.35).setDepth(11);
+    // Визуал: расширяющееся кольцо энергии
+    const ring = this.add.circle(this.player.x, this.player.y, 30, VITAL.mana, 0.35).setDepth(11);
     this.tweens.add({
       targets: ring,
       radius,
@@ -1524,7 +1394,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.kill();
     this.respawnAt = this.time.now + PLAYER_STATS.respawnDelay;
 
-    burst(this, this.player.x, this.player.y, 0x4fc3f7, 12);
+    // Гибель лейкоцита: ошмётки белой клетки разлетаются
+    burst(this, this.player.x, this.player.y, CELL.membrane, 12);
     this.cameras.main.shake(320, 0.012);
     this.cameras.main.flash(300, 255, 60, 60);
 
@@ -1557,7 +1428,8 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    burst(this, this.crystalSpawn.x, this.crystalSpawn.y, 0x4fc3f7, 10);
+    // Возрождение у сердца: вспышка белых телец
+    burst(this, this.crystalSpawn.x, this.crystalSpawn.y, CELL.membrane, 10);
     this.events.emit('player-respawned');
     this.emitStats();
   }
@@ -1573,9 +1445,11 @@ export default class GameScene extends Phaser.Scene {
     this.clearPlayerShots();
 
     this.crystal.playDestroyed();
-    burst(this, this.crystal.x, this.crystal.y, 0x4dd0e1, 16);
+    // Сердце лопается: кровь разлетается, камера «краснеет»
+    burst(this, this.crystal.x, this.crystal.y, HEART.muscleHi, 14);
+    burst(this, this.crystal.x, this.crystal.y, HEART.muscleDeep, 12);
     this.cameras.main.shake(600, 0.02);
-    this.cameras.main.flash(500, 120, 220, 255);
+    this.cameras.main.flash(500, 150, 25, 35);
 
     this.events.emit('game-over', {
       wave: this.waveSystem.wave,

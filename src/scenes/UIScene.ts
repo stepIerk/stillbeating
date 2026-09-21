@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CONTROLS_HEIGHT, SKILLS } from '../config/balance';
 import { UI_ATTACK, UI_BOTTOM, UI_JOY, UI_SKILLS, UI_TOP, BOTTOM_EXTRA_LIFT } from '../config/uiLayout';
 import { getSafeAreaInsets } from '../utils/safeArea';
+import { HEART, VITAL } from '../render/palette';
 import Orb from '../ui/Orb';
 import ShopPanel, { type ShopPanelPayload } from '../ui/ShopPanel';
 import InventoryPanel, { type InventoryPayload } from '../ui/InventoryPanel';
@@ -211,8 +212,9 @@ export default class UIScene extends Phaser.Scene {
   // ---------- HUD: полоски, текст, раскладка ----------
 
   private buildHud(): void {
-    this.crystalBar = new Bar(this, 0x4dd0e1, UI_TOP.crystalHeight);
-    this.xpBar = new Bar(this, 0xb39ddb, UI_BOTTOM.xpBarHeight);
+    // Полоска сердца красится в цвет миокарда, полоска опыта — в цвет маны
+    this.crystalBar = new Bar(this, HEART.muscleHi, UI_TOP.crystalHeight);
+    this.xpBar = new Bar(this, VITAL.mana, UI_BOTTOM.xpBarHeight);
 
     // Верх: кристалл, золото, волна
     this.crystalText = this.makeText(10, '#e8e8f0', true);
@@ -228,8 +230,8 @@ export default class UIScene extends Phaser.Scene {
     this.attackStatsText.setOrigin(0, 0.5);
 
     // Низ: колбы здоровья/маны
-    this.hpOrb = new Orb(this, UI_BOTTOM.orbRadius, 0x4fc3f7);
-    this.manaOrb = new Orb(this, UI_BOTTOM.orbRadius, 0xb39ddb);
+    this.hpOrb = new Orb(this, UI_BOTTOM.orbRadius, VITAL.hp);
+    this.manaOrb = new Orb(this, UI_BOTTOM.orbRadius, VITAL.mana);
     this.hpOrbText = this.makeText(11, '#e8e8f0', true);
     this.manaOrbText = this.makeText(11, '#e8e8f0', true);
     this.hpCapText = this.makeText(9, '#e8e8f0', true);
@@ -716,7 +718,7 @@ export default class UIScene extends Phaser.Scene {
 
     // Верх: кристалл, золото, волна
     this.crystalBar.setRatio(data.crystalHp / data.crystalMaxHp);
-    this.crystalText.setText(`КРИСТАЛЛ ${Math.ceil(data.crystalHp)}/${data.crystalMaxHp}`);
+    this.crystalText.setText(`СЕРДЦЕ ${Math.ceil(data.crystalHp)}/${data.crystalMaxHp}`);
     this.goldText.setText(`G ${data.gold}`);
     this.waveText.setText(`ВОЛНА ${data.wave} · ${data.enemiesLeft}`);
     this.timerText.setText(this.formatTime(data.time));
@@ -809,7 +811,7 @@ export default class UIScene extends Phaser.Scene {
     this.resetJoystick();
     this.setAttackHeld(false);
     this.updateRespawnOverlay(data.respawnIn);
-    this.showBanner('ВЫ ПОГИБЛИ', 'враги идут к кристаллу');
+    this.showBanner('ВЫ ПОГИБЛИ', 'враги идут к сердцу');
   }
 
   private onPlayerRespawned(): void {
@@ -854,7 +856,7 @@ export default class UIScene extends Phaser.Scene {
     this.intermissionText.setVisible(false);
 
     this.gameOverBg.setVisible(true);
-    this.gameOverTitle.setVisible(true).setText('КРИСТАЛЛ РАЗРУШЕН');
+    this.gameOverTitle.setVisible(true).setText('СЕРДЦЕ РАЗРУШЕНО');
     this.gameOverStats
       .setVisible(true)
       .setText(

@@ -85,7 +85,7 @@ const GOODS: GoodsDef[] = [
     baseCost: 12, rarity: 'common', minShopLevel: 1, payload: { weaponId: 'spear' },
   },
   {
-    id: 'crystal-armor-small', kind: 'points', title: 'ЩИТ КРИСТАЛЛА', desc: 'Макс. HP кристалла +60',
+    id: 'crystal-armor-small', kind: 'points', title: 'ЩИТ СЕРДЦА', desc: 'Макс. HP сердца +60',
     baseCost: 16, rarity: 'common', minShopLevel: 1, payload: { crystalHp: 60 },
   },
   {
@@ -93,7 +93,7 @@ const GOODS: GoodsDef[] = [
     baseCost: 32, rarity: 'rare', minShopLevel: 2, payload: { points: 3 },
   },
   {
-    id: 'crystal-armor', kind: 'points', title: 'БРОНЯ КРИСТАЛЛА', desc: 'Макс. HP кристалла +150',
+    id: 'crystal-armor', kind: 'points', title: 'БРОНЯ СЕРДЦА', desc: 'Макс. HP сердца +150',
     baseCost: 26, rarity: 'rare', minShopLevel: 2, payload: { crystalHp: 150 },
   },
   {
@@ -121,7 +121,7 @@ const GOODS: GoodsDef[] = [
     baseCost: 34, rarity: 'rare', minShopLevel: 3, payload: { weaponId: 'bloodthorn' },
   },
   {
-    id: 'crystal-armor-big', kind: 'points', title: 'БРОНЯ КРИСТАЛЛА +', desc: 'Макс. HP кристалла +280',
+    id: 'crystal-armor-big', kind: 'points', title: 'БРОНЯ СЕРДЦА +', desc: 'Макс. HP сердца +280',
     baseCost: 44, rarity: 'rare', minShopLevel: 3, payload: { crystalHp: 280 },
   },
   {
@@ -160,7 +160,7 @@ interface ServiceDef {
 /** Услуги лавки (вкладка УСЛУГИ). Не ограничены — покупаются многократно */
 const SERVICES: ServiceDef[] = [
   { id: 'heal', title: 'ЛЕЧЕНИЕ', unit: 'HP', minShopLevel: 1 },
-  { id: 'crystalRepair', title: 'РЕМОНТ КРИСТАЛЛА', unit: 'HP', minShopLevel: 1 },
+  { id: 'crystalRepair', title: 'РЕМОНТ СЕРДЦА', unit: 'HP', minShopLevel: 1 },
   { id: 'mana', title: 'ВОССТАНОВЛЕНИЕ МАНЫ', unit: 'MP', minShopLevel: 1 },
   { id: 'freeze', title: 'ЗАМОРОЗКА ВРАГОВ', unit: 'с', minShopLevel: 2 },
 ];

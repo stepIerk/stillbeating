@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import { SHOP } from '../config/balance';
+import { DROP } from '../render/palette';
 
 /**
- * Лавка на карте. Открывается ударом (атакой) рядом с ней:
- * внутри игра ставится на паузу и показывается окно покупок.
+ * Лавка-меняла на карте: лимфатический узел, который открывается ударом
+ * (атакой) рядом с ним — внутри игра ставится на паузу и показывается окно
+ * покупок. Золото лавки — то же, что выпадает из паразитов (DROP.gold).
  */
 export default class Shop extends Phaser.GameObjects.Image {
   private glow: Phaser.GameObjects.Arc;
@@ -14,9 +16,7 @@ export default class Shop extends Phaser.GameObjects.Image {
     scene.add.existing(this);
     this.setDepth(6);
 
-    this.glow = scene.add
-      .circle(x, y + 6, SHOP.glowRadius, 0xffd54f, 0.08)
-      .setDepth(5);
+    this.glow = scene.add.circle(x, y + 6, SHOP.glowRadius, DROP.gold, 0.08).setDepth(5);
 
     scene.tweens.add({
       targets: this.glow,
@@ -28,13 +28,13 @@ export default class Shop extends Phaser.GameObjects.Image {
       ease: 'Sine.easeInOut',
     });
 
-    // Вывеска смонтирована над лавкой — чтобы её было видно издалека
+    // Вывеска смонтирована над узлом — чтобы лавку было видно издалека
     scene.add
       .text(x, y - 62, 'ЛАВКА', {
         fontFamily: 'Arial, sans-serif',
         fontSize: '16px',
         fontStyle: 'bold',
-        color: '#ffd54f',
+        color: '#ffca28',
       })
       .setOrigin(0.5)
       .setDepth(6);
@@ -46,7 +46,7 @@ export default class Shop extends Phaser.GameObjects.Image {
       return;
     }
     this.highlighted = value;
-    this.glow.setFillStyle(0xffd54f, value ? 0.22 : 0.08);
+    this.glow.setFillStyle(DROP.gold, value ? 0.22 : 0.08);
     this.setScale(value ? 1.06 : 1);
   }
 
