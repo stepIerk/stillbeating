@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DROP } from '../render/palette';
+import { DROP, MARKET } from '../render/palette';
 import ScrollArea from './ScrollArea';
 
 const FONT = 'Arial, sans-serif';
@@ -13,6 +13,26 @@ const RARITY_ACCENTS: Record<string, number> = {
   rare: 0xffd54f,
   epic: 0xff7043,
 };
+
+/**
+ * Стиль окна лавки: сама лавка — живая клетка, поэтому окно выглядит как её
+ * нутро — тёмная плоть под светлой мембраной, карточки-вакуоли с товаром.
+ * Яркость подобрана прежней: надписи, цены и цвета редкости читаются так же.
+ */
+const WINDOW = {
+  /** Нутро лавки — основа панели */
+  panel: 0x281019,
+  /** Просвет цитоплазмы под мембраной */
+  panelInner: 0x371721,
+  /** Ярлык активной вкладки */
+  tab: 0x45222e,
+  /** Вакуоль — карточка товара */
+  card: 0x341722,
+  /** Вакуоль распроданного слота */
+  cardSoldOut: 0x241117,
+  /** Кнопка выхода */
+  button: 0x45222e,
+} as const;
 
 export type ShopTabId = 'goods' | 'services' | 'skills' | 'shop';
 
@@ -129,10 +149,20 @@ export default class ShopPanel {
     const panelHeight = height - panelTop * 2;
 
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0x14141f, 1);
+    bg.fillStyle(WINDOW.panel, 1);
     bg.fillRoundedRect(left, panelTop, panelWidth, panelHeight, 16);
-    bg.lineStyle(2, DROP.gold, 0.5);
+    bg.fillStyle(WINDOW.panelInner, 1);
+    bg.fillRoundedRect(left + 6, panelTop + 6, panelWidth - 12, panelHeight - 12, 13);
+    // Вакуоли в глубине окна — панель выглядит как нутро живой клетки
+    bg.fillStyle(MARKET.vesicle, 0.08);
+    bg.fillCircle(left + 40, panelTop + 130, 56);
+    bg.fillCircle(left + panelWidth - 46, panelTop + panelHeight * 0.55, 68);
+    bg.fillCircle(left + 26, panelTop + panelHeight - 96, 44);
+    // Светлая мембрана по кромке и золотая жила внутри — золото лавки
+    bg.lineStyle(2, MARKET.membrane, 0.4);
     bg.strokeRoundedRect(left, panelTop, panelWidth, panelHeight, 16);
+    bg.lineStyle(1, DROP.gold, 0.3);
+    bg.strokeRoundedRect(left + 6, panelTop + 6, panelWidth - 12, panelHeight - 12, 13);
     this.container.add(bg);
 
     // Заголовок: ЛАВКА · уровень, золото справа
@@ -142,7 +172,7 @@ export default class ShopPanel {
           fontFamily: FONT,
           fontSize: '20px',
           fontStyle: 'bold',
-          color: '#e8e8f0',
+          color: '#f4e4ec',
         })
         .setOrigin(0, 0.5),
     );
@@ -206,10 +236,12 @@ export default class ShopPanel {
       const active = tab.id === this.activeTab;
       const gfx = this.scene.add.graphics();
       if (active) {
-        gfx.fillStyle(0x2b2b3a, 1);
+        gfx.fillStyle(WINDOW.tab, 1);
         gfx.fillRoundedRect(x - tabWidth / 2 + 3, tabY - 15, tabWidth - 6, 30, 8);
-        gfx.lineStyle(1, DROP.gold, 0.6);
+        gfx.lineStyle(1.5, MARKET.membrane, 0.5);
         gfx.strokeRoundedRect(x - tabWidth / 2 + 3, tabY - 15, tabWidth - 6, 30, 8);
+        gfx.lineStyle(1, DROP.gold, 0.7);
+        gfx.strokeRoundedRect(x - tabWidth / 2 + 5, tabY - 13, tabWidth - 10, 26, 7);
       }
       this.container?.add(gfx);
       // Подпись вкладки подгоняем по ширине, чтобы не вылезала на узких экранах
@@ -220,7 +252,7 @@ export default class ShopPanel {
             fontFamily: FONT,
             fontSize: `${tabFont}px`,
             fontStyle: 'bold',
-            color: active ? '#ffd54f' : '#8a8a9a',
+            color: active ? '#ffd54f' : '#9d8791',
             align: 'center',
           })
           .setOrigin(0.5),
@@ -252,10 +284,13 @@ export default class ShopPanel {
     const disabled = option.disabled || option.soldOut;
 
     const card = this.scene.add.graphics();
-    card.fillStyle(option.soldOut ? 0x181820 : 0x1c1c26, 1);
+    card.fillStyle(option.soldOut ? WINDOW.cardSoldOut : WINDOW.card, 1);
     card.fillRoundedRect(x - w / 2, y - h / 2, w, h, 12);
     card.lineStyle(2, option.soldOut ? 0x4a4a55 : accent, option.soldOut ? 0.4 : disabled ? 0.4 : 0.9);
     card.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 12);
+    // Тонкая мембрана внутри — карточка читается как вакуоль с товаром
+    card.lineStyle(1, MARKET.vesicleHi, option.soldOut ? 0.08 : 0.16);
+    card.strokeRoundedRect(x - w / 2 + 3, y - h / 2 + 3, w - 6, h - 6, 10);
     content.add(card);
 
     content.add(
@@ -263,7 +298,7 @@ export default class ShopPanel {
         fontFamily: FONT,
         fontSize: '16px',
         fontStyle: 'bold',
-        color: option.soldOut ? '#5a5a66' : RARITY_COLORS[rarity],
+        color: option.soldOut ? '#6b5762' : RARITY_COLORS[rarity],
         wordWrap: { width: w - 110 },
       }),
     );
@@ -272,7 +307,7 @@ export default class ShopPanel {
       this.scene.add.text(x - w / 2 + 14, y - h / 2 + 34, option.desc, {
         fontFamily: FONT,
         fontSize: '12px',
-        color: option.soldOut ? '#5a5a66' : '#a0a0b0',
+        color: option.soldOut ? '#6b5762' : '#b9a6b0',
         wordWrap: { width: w - 100 },
         lineSpacing: 3,
       }),
@@ -286,7 +321,7 @@ export default class ShopPanel {
             fontFamily: FONT,
             fontSize: '14px',
             fontStyle: 'bold',
-            color: disabled ? '#8a8a9a' : '#ffd54f',
+            color: disabled ? '#9d8791' : '#ffd54f',
           })
           .setOrigin(1, 0),
       );
@@ -300,7 +335,7 @@ export default class ShopPanel {
             fontFamily: FONT,
             fontSize: '11px',
             fontStyle: 'bold',
-            color: '#8a8a9a',
+            color: '#9d8791',
           })
           .setOrigin(1, 1),
       );
@@ -335,8 +370,10 @@ export default class ShopPanel {
     const h = 46;
 
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0x2b2b38, 1);
+    bg.fillStyle(WINDOW.button, 1);
     bg.fillRoundedRect(x - w / 2, y - h / 2, w, h, 12);
+    bg.lineStyle(1.5, MARKET.membrane, 0.35);
+    bg.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 12);
     container.add(bg);
 
     container.add(

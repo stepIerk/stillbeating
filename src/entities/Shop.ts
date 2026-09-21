@@ -3,9 +3,10 @@ import { SHOP } from '../config/balance';
 import { DROP } from '../render/palette';
 
 /**
- * Лавка-меняла на карте: лимфатический узел, который открывается ударом
- * (атакой) рядом с ним — внутри игра ставится на паузу и показывается окно
- * покупок. Золото лавки — то же, что выпадает из паразитов (DROP.gold).
+ * Лавка-меняла на карте — макрофаг-маркитант: старая клетка тела, вросшая в
+ * ткань. Открывается ударом (атакой) рядом с ней — внутри игра ставится на
+ * паузу и показывается окно покупок. Платит лавка золотом-лимфой, тем же,
+ * что выпадает из паразитов (DROP.gold).
  */
 export default class Shop extends Phaser.GameObjects.Image {
   private glow: Phaser.GameObjects.Arc;
@@ -35,6 +36,9 @@ export default class Shop extends Phaser.GameObjects.Image {
         fontSize: '16px',
         fontStyle: 'bold',
         color: '#ffca28',
+        // Тёмная обводка: вывеска лежит над светлой клеткой-менялой
+        stroke: '#2a0d12',
+        strokeThickness: 4,
       })
       .setOrigin(0.5)
       .setDepth(6);

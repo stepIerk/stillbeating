@@ -6,7 +6,7 @@ import {
   WALL_THICKNESS,
   WORLD_VISUALS,
 } from '../config/balance';
-import { BODY, CELL, DROP, FLUID, HEART, MARKET, VESSEL } from './palette';
+import { BODY, CELL, DROP, FLUID, HEART, MARKET, PARASITE, VESSEL } from './palette';
 
 /**
  * Все текстуры игры рисуются простыми фигурами (круги, линии) в Graphics и
@@ -248,6 +248,74 @@ function strokePath(g: Phaser.GameObjects.Graphics, points: ReadonlyArray<readon
     g.lineTo(points[i][0], points[i][1]);
   }
   g.strokePath();
+}
+
+/**
+ * Неровное пятно с разными полуосями: тело-палочка у бацилл и сплюснутая
+ * капсула у прочих — так силуэты видов не повторяют друг друга.
+ */
+function blobPointsEllipse(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  segments: number,
+  wobble: number,
+): Phaser.Math.Vector2[] {
+  const points: Phaser.Math.Vector2[] = [];
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const jitter = 1 + Phaser.Math.FloatBetween(-wobble, wobble);
+    points.push(
+      new Phaser.Math.Vector2(cx + Math.cos(angle) * rx * jitter, cy + Math.sin(angle) * ry * jitter),
+    );
+  }
+  return points;
+}
+
+/** Точки-кортежи из пятна Vector2 — smoothClosedPath работает с кортежами */
+function toPairs(points: readonly Phaser.Math.Vector2[]): Array<[number, number]> {
+  return points.map((p) => [p.x, p.y] as [number, number]);
+}
+
+/**
+ * Жгутик: волна из точек — бактерия гребёт хвостом. Начало в (x, y),
+ * длина и направление задаются углом, число волн — как изгибается хвост.
+ */
+function flagellumPoints(
+  x: number,
+  y: number,
+  length: number,
+  angle: number,
+  waves: number,
+): Array<[number, number]> {
+  const steps = 12;
+  const points: Array<[number, number]> = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const bend = Math.sin(t * Math.PI * waves) * length * 0.22;
+    points.push([
+      x + Math.cos(angle) * length * t - Math.sin(angle) * bend,
+      y + Math.sin(angle) * length * t + Math.cos(angle) * bend,
+    ]);
+  }
+  return points;
+}
+
+/** Зуб пасти: треугольник от внешнего радиуса к внутреннему */
+function toothPoints(
+  cx: number,
+  cy: number,
+  angle: number,
+  outer: number,
+  inner: number,
+  half: number,
+): Phaser.Math.Vector2[] {
+  return [
+    new Phaser.Math.Vector2(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer),
+    new Phaser.Math.Vector2(cx + Math.cos(angle - half) * inner, cy + Math.sin(angle - half) * inner),
+    new Phaser.Math.Vector2(cx + Math.cos(angle + half) * inner, cy + Math.sin(angle + half) * inner),
+  ];
 }
 
 /**
@@ -619,81 +687,152 @@ export function buildDropTextures(g: Phaser.GameObjects.Graphics): void {
 }
 
 /**
- * Лавка-меняла на карте: лимфатический узел под мембранным навесом.
- * При мелком зуме силуэт должен читаться как лавка, поэтому в текстуре всего
- * три крупные формы — навес с бахромой, мешок-узел с торговцем и прилавок
- * с золотом (тем же, что выпадает из паразитов).
+ * Лавка-меняла на карте — макрофаг-маркитант. Старая клетка тела, вросшая в
+ * ткань: за трофеи паразитов (клыки, споры, нервные узлы) она платит золотой
+ * лимфой. При мелком зуме силуэт должен читаться как лавка, поэтому в текстуре
+ * четыре крупные формы — тело клетки с ресничками вместо навеса, тёмное
+ * ядро-торговец с глазами, вакуоли с товаром и выдвинутая вперёд
+ * псевдоподия-прилавок с золотом.
  *
  * Ключ и размер текстуры не меняются: по ним строится свечение-подсказка
- * (SHOP.glowRadius) и вывеска «ЛАВКА» над узлом.
+ * (SHOP.glowRadius) и вывеска «ЛАВКА» над клеткой.
  */
 export function buildShopTexture(g: Phaser.GameObjects.Graphics): void {
   const width = 116;
   const height = 96;
   const cx = width / 2;
 
-  // Мешок-узел: тёмная мембрана, ткань узла и светлая кромка —
-  // чтобы лавка не сливалась с тканью пола
-  g.fillStyle(MARKET.pouchDeep, 1);
-  g.fillEllipse(cx, 64, 104, 54);
-  g.fillStyle(MARKET.pouch, 1);
-  g.fillEllipse(cx, 64, 94, 46);
-  g.lineStyle(2, MARKET.awningHi, 0.35);
-  g.strokeEllipse(cx, 64, 90, 42);
+  // Подошва: клетка вросла в ткань псевдоподиями — тёмная кромка и тяжи-корни
+  g.fillStyle(MARKET.bodyDeep, 1);
+  g.fillEllipse(cx, 78, 104, 30);
+  g.lineStyle(2.5, VESSEL.vein, 0.85);
+  strokePath(g, [
+    [cx - 34, 88],
+    [cx - 46, 92],
+  ]);
+  strokePath(g, [
+    [cx + 34, 88],
+    [cx + 46, 92],
+  ]);
 
-  // Тёплый свет внутри мешка — витрина
-  g.fillStyle(DROP.gold, 0.16);
-  g.fillEllipse(cx, 58, 74, 22);
+  // Тело клетки: сглаженный контур с лопастями-псевдоподиями по бокам —
+  // это живая клетка, а не ровный гриб
+  const tips: Array<[number, number]> = [
+    [cx, 12],
+    [cx + 20, 14],
+    [cx + 38, 24],
+    [cx + 46, 40],
+    [cx + 40, 54],
+    [cx + 46, 68],
+    [cx + 30, 84],
+    [cx, 88],
+    [cx - 30, 84],
+    [cx - 46, 68],
+    [cx - 40, 54],
+    [cx - 46, 40],
+    [cx - 38, 24],
+    [cx - 20, 14],
+  ];
+  const rim = smoothClosedPath(tips);
+  const body = smoothClosedPath(
+    tips.map(([x, y]) => [cx + (x - cx) * 0.9, 50 + (y - 50) * 0.9] as [number, number]),
+  );
+  g.fillStyle(MARKET.cytoplasmDeep, 1);
+  g.fillPoints(rim, true);
+  g.fillStyle(MARKET.cytoplasm, 1);
+  g.fillPoints(body, true);
+  g.lineStyle(2, MARKET.membrane, 0.55);
+  g.strokePoints(rim, true);
+  // Блик сверху — клетка выглядит выпуклой
+  g.fillStyle(MARKET.vesicleHi, 0.16);
+  g.fillEllipse(cx, 34, 58, 28);
 
-  // Торговец: тёмный комок с бледными глазами, виден из-за прилавка
-  g.fillStyle(MARKET.keeper, 1);
-  g.fillEllipse(cx, 57, 22, 24);
-  g.fillStyle(MARKET.keeperEye, 1);
-  g.fillEllipse(cx - 5.4, 55.5, 4.6, 6.4);
-  g.fillEllipse(cx + 5.4, 55.5, 4.6, 6.4);
-  g.fillStyle(MARKET.keeper, 1);
-  g.fillCircle(cx - 5.1, 56, 1.5);
-  g.fillCircle(cx + 5.1, 56, 1.5);
-
-  // Навес: полукруглая складка мембраны над узлом
-  const awningBase = 34;
-  const awningPeak = 6;
-  const awningHalf = 54;
-  const awningSteps = 24;
-  const awning: Array<[number, number]> = [];
-  for (let i = 0; i <= awningSteps; i++) {
-    const t = (i / awningSteps) * Math.PI;
-    awning.push([
-      cx - awningHalf * Math.cos(t),
-      awningBase - (awningBase - awningPeak) * Math.sin(t),
+  // Реснички по верхней дуге: тот же силуэт «навеса», что был у прежней лавки
+  g.lineStyle(1.6, MARKET.membrane, 0.65);
+  for (let i = 0; i < rim.length; i += 5) {
+    const point = rim[i];
+    if (point.y > 44) {
+      continue;
+    }
+    const angle = Math.atan2(point.y - 50, point.x - cx);
+    const length = 7 + Phaser.Math.FloatBetween(0, 3);
+    strokePath(g, [
+      [point.x, point.y],
+      [point.x + Math.cos(angle) * length, point.y + Math.sin(angle) * length],
     ]);
   }
-  g.fillStyle(MARKET.awning, 1);
+
+  // Ядро-торговец: тёмный комок с бледными глазами и светлым ядрышком
+  const nucleus = smoothClosedPath(toPairs(blobPoints(cx - 2, 48, 15, 10, 0.16)));
+  g.fillStyle(MARKET.nucleus, 1);
+  g.fillPoints(nucleus, true);
+  g.fillStyle(MARKET.nucleusHi, 0.45);
+  g.fillEllipse(cx + 4, 43, 11, 7);
+  g.fillStyle(MARKET.eye, 1);
+  g.fillEllipse(cx - 9, 48, 5, 7);
+  g.fillEllipse(cx + 5, 48, 5, 7);
+  g.fillStyle(MARKET.pupil, 1);
+  g.fillCircle(cx - 8.6, 48.6, 1.5);
+  g.fillCircle(cx + 5.4, 48.6, 1.5);
+
+  // Вакуоли-витрины: в них клетка держит товар — клык, спору и каплю лимфы
+  const vesicle = (x: number, y: number, radius: number): void => {
+    g.fillStyle(MARKET.vesicle, 0.9);
+    g.fillCircle(x, y, radius);
+    g.lineStyle(1.5, MARKET.vesicleHi, 0.7);
+    g.strokeCircle(x, y, radius);
+  };
+  vesicle(cx + 30, 34, 9);
+  vesicle(cx - 30, 38, 9.5);
+  vesicle(cx + 32, 54, 8.5);
+
+  // Клык паразита в первой вакуоли
+  g.fillStyle(DROP.fangDeep, 1);
   g.fillPoints(
-    awning.map(([x, y]) => new Phaser.Math.Vector2(x, y)),
+    [
+      new Phaser.Math.Vector2(cx + 26, 39),
+      new Phaser.Math.Vector2(cx + 31, 29),
+      new Phaser.Math.Vector2(cx + 34, 38),
+    ],
     true,
   );
+  g.fillStyle(DROP.fang, 1);
+  g.fillPoints(
+    [
+      new Phaser.Math.Vector2(cx + 27.6, 38),
+      new Phaser.Math.Vector2(cx + 31, 31.5),
+      new Phaser.Math.Vector2(cx + 32.4, 37.6),
+    ],
+    true,
+  );
+  // Спора во второй
+  g.fillStyle(DROP.sporeDeep, 1);
+  g.fillEllipse(cx - 30, 38, 9, 10);
+  g.fillStyle(DROP.spore, 1);
+  g.fillEllipse(cx - 30, 38, 6.5, 7.5);
+  g.fillStyle(DROP.sporeHi, 0.85);
+  g.fillCircle(cx - 30, 36.8, 2);
+  // Капля лимфы в третьей
+  g.fillStyle(DROP.goldDeep, 1);
+  g.fillCircle(cx + 32, 54.6, 5.4);
+  g.fillStyle(DROP.gold, 1);
+  g.fillCircle(cx + 32, 54, 4.6);
+  g.fillStyle(DROP.goldHi, 0.9);
+  g.fillEllipse(cx + 30.4, 52, 3.4, 2.2);
 
-  // Бахрома навеса: круглые фестоны по нижнему краю
-  const bump = 9.75;
-  const bumpStep = (awningHalf * 2 - bump * 2) / 5;
-  for (let i = 0; i < 6; i++) {
-    g.fillCircle(cx - awningHalf + bump + i * bumpStep, awningBase, bump);
-  }
+  // Прилавок: клетка выдвинула вперёд широкую псевдоподию — на ней товар
+  g.fillStyle(MARKET.cytoplasmDeep, 1);
+  g.fillEllipse(cx, 74, 94, 24);
+  g.fillStyle(MARKET.cytoplasm, 1);
+  g.fillEllipse(cx, 71, 88, 19);
+  g.lineStyle(1.5, MARKET.membrane, 0.45);
+  g.strokeEllipse(cx, 70, 80, 12);
 
-  // Светлая мембрана по верхней кромке навеса
-  g.lineStyle(2.5, MARKET.awningHi, 0.5);
-  strokePath(g, awning);
+  // Тёплый свет витрины: золото подсвечивает прилавок снизу
+  g.fillStyle(DROP.gold, 0.18);
+  g.fillEllipse(cx, 66, 74, 17);
 
-  // Прилавок: плотная кромка ткани перед торговцем
-  g.fillStyle(MARKET.counterDeep, 1);
-  g.fillEllipse(cx, 74, 92, 18);
-  g.fillStyle(MARKET.counter, 1);
-  g.fillEllipse(cx, 72, 90, 15);
-  g.lineStyle(1.5, MARKET.counterHi, 0.45);
-  g.strokeEllipse(cx, 69.5, 82, 8);
-
-  // Золото-лимфа на прилавке: горка слева и монета справа
+  // Золото-лимфа на прилавке: горка слева, ряд капель по центру и монета справа
   const coin = (x: number, y: number, r: number): void => {
     g.fillStyle(DROP.goldDeep, 1);
     g.fillCircle(x, y + 1, r);
@@ -702,149 +841,228 @@ export function buildShopTexture(g: Phaser.GameObjects.Graphics): void {
     g.fillStyle(DROP.goldHi, 0.85);
     g.fillEllipse(x - r * 0.3, y - r * 0.35, r * 0.72, r * 0.42);
   };
-  coin(cx - 30, 71, 8.5);
-  coin(cx - 23, 74, 6.5);
-  coin(cx + 27, 72, 7.5);
-
-  // Ножки прилавка: две короткие стойки, чтобы силуэт читался как лавка,
-  // а не как гриб, плюс тяжи-корни, которыми узел держится в ткани
-  g.fillStyle(MARKET.counterDeep, 1);
-  g.fillRoundedRect(cx - 40, 76, 9, 19, 4);
-  g.fillRoundedRect(cx + 31, 76, 9, 19, 4);
-  g.lineStyle(2.5, VESSEL.vein, 0.85);
-  strokePath(g, [
-    [cx - 36, 92],
-    [cx - 44, 94],
-  ]);
-  strokePath(g, [
-    [cx + 36, 92],
-    [cx + 44, 94],
-  ]);
+  coin(cx - 30, 66, 8.5);
+  coin(cx - 22, 69, 6.5);
+  coin(cx - 12, 68, 5.5);
+  coin(cx + 2, 70, 6);
+  coin(cx + 13, 69, 5);
+  coin(cx + 27, 67, 7.5);
 
   g.generateTexture('shop', width, height);
   g.clear();
 }
 
 /**
- * Враги — паразиты, ползущие по телу бога. Цвет тира остаётся основой
- * (по нему виды различаются в бою), а форма и детали отличают их друг от друга:
- * амёба, личинка, железа-плеватель, опухоль и червь-босс.
+ * Враги — бактерии и паразиты, что ползут по телу бога и рвутся к сердцу.
+ * Цвет тира остаётся основой (по нему виды различаются в бою), а форма и
+ * детали рассказывают, кто перед тобой: кокк в капсуле, бацилла на жгутиках,
+ * железа-плеватель, опухоль-осадник и червь-пожиратель с пастью.
+ * Все виды нарисованы «носом вправо» (0 рад): Enemy доворачивает спрайт по
+ * курсу движения, поэтому хвост-жгутик всегда тянется назад — против хода.
  */
 export function buildParasiteTextures(g: Phaser.GameObjects.Graphics): void {
   for (const tier of ENEMY_TIERS) {
     const r = tier.radius;
     const base = tier.color;
     const deep = shade(base, -0.5);
+    const dark = shade(base, -0.74);
     const lite = shade(base, 0.35);
+    const pale = shade(base, 0.6);
 
-    // Контур и тело: неровное пятно вместо ровного круга
-    const outline = blobPoints(r, r, r - 0.5, 11, 0.07);
-    const body = blobPoints(r, r, r - 2.5, 11, 0.12);
-    g.fillStyle(deep, 1);
+    // Силуэт сглажен (smoothClosedPath): у живого тела нет граней
+    // многоугольника — контур «дышит», и у каждого вида своя форма.
+    // Тело занимает почти весь кадр (r - 0.5): враг должен быть заметным
+    const shape =
+      tier.id === 'runner'
+        ? blobPointsEllipse(r + r * 0.1, r, r * 0.66, r * 0.5, 12, 0.06)
+        : blobPoints(r, r, r - 0.5, 13, tier.id === 'tank' ? 0.11 : 0.08);
+    const outline = smoothClosedPath(toPairs(shape));
+    const body = smoothClosedPath(
+      shape.map((p) => [r + (p.x - r) * 0.9, r + (p.y - r) * 0.9] as [number, number]),
+    );
+    g.fillStyle(dark, 1);
     g.fillPoints(outline, true);
     g.fillStyle(base, 1);
     g.fillPoints(body, true);
 
     switch (tier.id) {
       case 'slime': {
-        // Амёба: ядро, вакуоли и тонкая внутренняя мембрана
-        g.lineStyle(1.5, lite, 0.5);
-        g.strokeCircle(r, r, r * 0.72);
-        g.fillStyle(lite, 0.4);
-        for (let i = 0; i < 3; i++) {
-          const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-          const distance = r * Phaser.Math.FloatBetween(0.3, 0.6);
-          g.fillCircle(r + Math.cos(angle) * distance, r + Math.sin(angle) * distance, r * 0.16);
+        // Кокк: зернистая цитоплазма, вакуоли и тёмный нуклеоид
+        g.lineStyle(1.5, lite, 0.45);
+        g.strokeCircle(r, r, r * 0.7);
+        for (const [vx, vy, vr] of [
+          [r - r * 0.4, r + r * 0.32, r * 0.2],
+          [r + r * 0.42, r - r * 0.3, r * 0.15],
+          [r + r * 0.1, r + r * 0.55, r * 0.12],
+        ]) {
+          g.fillStyle(lite, 0.26);
+          g.fillCircle(vx, vy, vr);
+          g.lineStyle(1, pale, 0.4);
+          g.strokeCircle(vx, vy, vr);
         }
-        g.fillStyle(deep, 1);
-        g.fillCircle(r * 0.85, r * 1.3, r * 0.32);
+        g.fillStyle(dark, 0.9);
+        g.fillPoints(smoothClosedPath(toPairs(blobPoints(r * 0.78, r * 1.1, r * 0.3, 9, 0.22))), true);
+        // Гранулы рибосом
+        g.fillStyle(pale, 0.5);
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 5) * Math.PI * 2 + 0.7;
+          g.fillCircle(r + Math.cos(angle) * r * 0.55, r + Math.sin(angle) * r * 0.45, r * 0.07);
+        }
         break;
       }
       case 'runner': {
-        // Личинка: ножки по краю и тёмный глазок на голове
-        g.lineStyle(2, deep, 1);
-        for (let i = 0; i < 8; i++) {
-          const angle = (i / 8) * Math.PI * 2 + 0.2;
+        // Бацилла: палочка гребёт жгутиками и цепляется пилями. Палочка сдвинута
+        // к «носу» (вправо), а жгутики уходят влево — назад по ходу движения
+        const rodCenter = r + r * 0.1;
+        for (const [dy, angle] of [
+          [-r * 0.3, Math.PI + 0.34],
+          [0, Math.PI],
+          [r * 0.3, Math.PI - 0.34],
+        ]) {
+          // Жгутик растёт прямо из поверхности палочки: точка на эллипсе при этом dy
+          const exit = Math.sqrt(Math.max(0, 1 - (dy / (r * 0.5)) ** 2));
+          const tail = flagellumPoints(rodCenter - r * 0.66 * exit, r + dy, r * 0.4, angle, 2);
+          g.lineStyle(2.6, PARASITE.flagellum, 0.85);
+          strokePath(g, tail);
+          g.lineStyle(1.3, lite, 0.7);
+          strokePath(g, tail);
+        }
+        // Пили — короткие ворсинки на переднем конце
+        g.lineStyle(1.4, dark, 0.7);
+        for (let i = 0; i < 5; i++) {
+          const spread = (i - 2) / 2;
+          const dy = spread * r * 0.44;
+          const exit = Math.sqrt(Math.max(0, 1 - (dy / (r * 0.5)) ** 2));
+          const root = rodCenter + r * 0.66 * exit;
           strokePath(g, [
-            [r + Math.cos(angle) * r * 0.62, r + Math.sin(angle) * r * 0.62],
-            [r + Math.cos(angle) * r * 0.94, r + Math.sin(angle) * r * 0.94],
+            [root - r * 0.06, r + dy],
+            [root + r * 0.12, r + dy * 1.4],
           ]);
         }
-        g.fillStyle(lite, 0.9);
-        g.fillCircle(r * 1.35, r * 0.8, r * 0.22);
-        g.fillStyle(0x000000, 0.55);
-        g.fillCircle(r * 1.4, r * 0.75, Math.max(1.2, r * 0.1));
+        // Нуклеоид — комок наследственного вещества внутри палочки
+        g.fillStyle(dark, 0.5);
+        g.fillEllipse(rodCenter - r * 0.1, r, r * 0.54, r * 0.28);
+        g.fillStyle(pale, 0.45);
+        for (let i = 0; i < 4; i++) {
+          const angle = (i / 4) * Math.PI * 2 + 0.3;
+          g.fillCircle(
+            rodCenter + Math.cos(angle) * r * 0.5,
+            r + Math.sin(angle) * r * 0.3,
+            r * 0.06,
+          );
+        }
         break;
       }
       case 'shooter': {
-        // Железа-плеватель: тёмный рот с кислотным ядром и капли снизу
-        g.fillStyle(deep, 1);
-        g.fillCircle(r, r, r * 0.52);
-        g.lineStyle(2.5, FLUID.bile, 0.9);
-        g.strokeCircle(r, r, r * 0.5);
+        // Железа-плеватель: кислотный мешок в теле, проток-хоботок и рот-кольцо,
+        // с которого стекает кислота
+        g.fillStyle(FLUID.bileDeep, 0.9);
+        g.fillCircle(r - r * 0.14, r, r * 0.4);
         g.fillStyle(FLUID.bile, 0.85);
-        g.fillCircle(r, r, r * 0.36);
+        g.fillCircle(r - r * 0.14, r, r * 0.3);
+        g.fillStyle(FLUID.bileHi, 0.9);
+        g.fillCircle(r - r * 0.22, r - r * 0.12, r * 0.12);
+        g.fillStyle(deep, 1);
+        g.fillEllipse(r + r * 0.32, r, r * 0.5, r * 0.28);
+        g.lineStyle(1.5, lite, 0.45);
+        g.strokeEllipse(r + r * 0.32, r, r * 0.52, r * 0.3);
+        g.fillStyle(lite, 0.5);
+        g.fillEllipse(r + r * 0.32, r - r * 0.06, r * 0.42, r * 0.12);
+        g.fillStyle(deep, 1);
+        g.fillCircle(r + r * 0.66, r, r * 0.3);
+        g.fillStyle(FLUID.bile, 0.9);
+        g.fillCircle(r + r * 0.66, r, r * 0.2);
         g.fillStyle(FLUID.bileHi, 1);
-        g.fillCircle(r, r, r * 0.2);
-        g.fillStyle(base, 1);
-        for (let i = 0; i < 3; i++) {
-          g.fillCircle(r * (0.5 + i * 0.5), r * 1.55, r * 0.14);
-        }
+        g.fillCircle(r + r * 0.7, r - r * 0.05, r * 0.08);
+        g.fillStyle(FLUID.bile, 0.85);
+        g.fillCircle(r + r * 0.62, r + r * 0.34, r * 0.11);
+        g.fillCircle(r + r * 0.56, r + r * 0.58, r * 0.07);
         break;
       }
       case 'tank': {
-        // Опухоль: наросты по краю и кольца плотной ткани
-        g.fillStyle(lite, 0.35);
-        for (let i = 0; i < 6; i++) {
-          const angle = (i / 6) * Math.PI * 2 + 0.5;
-          g.fillCircle(r + Math.cos(angle) * r * 0.7, r + Math.sin(angle) * r * 0.7, r * 0.18);
+        // Опухоль-осадник: лопасти-наросты, фиброзные волокна, язвы-провалы
+        // и известковая корка — плотная масса, которую бьют в упор
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 5) * Math.PI * 2 + 0.45;
+          const nx = r + Math.cos(angle) * r * 0.42;
+          const ny = r + Math.sin(angle) * r * 0.42;
+          g.fillStyle(lite, 0.3);
+          g.fillCircle(nx, ny, r * 0.24);
+          g.lineStyle(2, deep, 0.45);
+          g.strokeCircle(nx, ny, r * 0.24);
         }
-        g.lineStyle(2.5, deep, 0.55);
-        g.strokeCircle(r, r, r * 0.66);
-        g.lineStyle(2, deep, 0.45);
+        g.lineStyle(2.5, dark, 0.5);
+        g.strokeCircle(r, r, r * 0.68);
+        g.lineStyle(2, dark, 0.4);
         g.strokeCircle(r, r, r * 0.42);
+        g.lineStyle(2, deep, 0.35);
+        for (let i = 0; i < 8; i++) {
+          const angle = (i / 8) * Math.PI * 2 + 0.3;
+          strokePath(g, [
+            [r + Math.cos(angle) * r * 0.45, r + Math.sin(angle) * r * 0.45],
+            [r + Math.cos(angle) * r * 0.66, r + Math.sin(angle) * r * 0.66],
+          ]);
+        }
+        g.fillStyle(dark, 0.7);
+        g.fillEllipse(r - r * 0.34, r + r * 0.34, r * 0.34, r * 0.2);
+        g.fillEllipse(r + r * 0.44, r - r * 0.2, r * 0.2, r * 0.3);
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 5) * Math.PI * 2 + 0.9;
+          g.fillStyle(PARASITE.crust, 0.45);
+          g.fillPoints(toothPoints(r, r, angle, r * 0.96, r * 0.7, 0.2), true);
+        }
         break;
       }
       case 'boss': {
-        // Червь-пожиратель: пасть с зубами и кольца сегментов
-        g.fillStyle(deep, 1);
-        g.fillCircle(r, r, r * 0.45);
-        g.fillStyle(0xfff3e0, 0.9);
-        for (let i = 0; i < 9; i++) {
-          const angle = (i / 9) * Math.PI * 2;
-          const inner = r * 0.3;
-          const outer = r * 0.47;
-          const half = 0.16;
-          g.fillPoints(
-            [
-              new Phaser.Math.Vector2(
-                r + Math.cos(angle) * outer,
-                r + Math.sin(angle) * outer,
-              ),
-              new Phaser.Math.Vector2(
-                r + Math.cos(angle - half) * inner,
-                r + Math.sin(angle - half) * inner,
-              ),
-              new Phaser.Math.Vector2(
-                r + Math.cos(angle + half) * inner,
-                r + Math.sin(angle + half) * inner,
-              ),
-            ],
-            true,
-          );
+        // Червь-пожиратель: кольца сегментов, щупальца-усики, пасть с двумя
+        // рядами зубов и ряд глазков над ней
+        g.lineStyle(2.5, deep, 0.55);
+        g.strokeCircle(r, r, r * 0.76);
+        g.lineStyle(2, lite, 0.3);
+        g.strokeCircle(r, r, r * 0.88);
+        g.lineStyle(3, deep, 0.85);
+        for (const dir of [-1, 1]) {
+          strokePath(g, [
+            [r + dir * r * 0.56, r - r * 0.46],
+            [r + dir * r * 0.86, r - r * 0.72],
+          ]);
         }
-        g.fillStyle(0x000000, 0.5);
-        g.fillCircle(r, r, r * 0.22);
-        g.lineStyle(2.5, deep, 0.6);
-        g.strokeCircle(r, r, r * 0.7);
-        g.lineStyle(2, lite, 0.35);
-        g.strokeCircle(r, r, r * 0.86);
+        g.fillStyle(dark, 1);
+        g.fillCircle(r, r, r * 0.5);
+        for (let i = 0; i < 12; i++) {
+          const angle = (i / 12) * Math.PI * 2 + 0.12;
+          g.fillStyle(PARASITE.tooth, 0.92);
+          g.fillPoints(toothPoints(r, r, angle, r * 0.5, r * 0.34, 0.11), true);
+        }
+        for (let i = 0; i < 9; i++) {
+          const angle = (i / 9) * Math.PI * 2 - 0.2;
+          g.fillStyle(PARASITE.toothDeep, 0.9);
+          g.fillPoints(toothPoints(r, r, angle, r * 0.3, r * 0.16, 0.16), true);
+        }
+        g.fillStyle(deep, 1);
+        g.fillCircle(r, r, r * 0.16);
+        for (const [angle, size] of [
+          [-2.35, 0.09],
+          [-1.95, 0.07],
+          [-1.19, 0.07],
+          [-0.79, 0.09],
+        ]) {
+          const ex = r + Math.cos(angle) * r * 0.66;
+          const ey = r + Math.sin(angle) * r * 0.66;
+          g.fillStyle(PARASITE.ocellus, 0.95);
+          g.fillCircle(ex, ey, r * size);
+          g.fillStyle(0x000000, 0.6);
+          g.fillCircle(ex, ey, r * size * 0.45);
+        }
         break;
       }
     }
 
-    // Блик и тёмный контур — чтобы паразит читался в бою, как прежние враги
-    g.fillStyle(0xffffff, 0.8);
+    // Мембрана-капсула по кромке тела, блик и тёмный контур — паразит должен
+    // читаться в бою так же чётко, как прежние враги
+    g.lineStyle(2, PARASITE.capsule, tier.id === 'tank' || tier.id === 'boss' ? 0.18 : 0.3);
+    g.strokePoints(body, true);
+    g.fillStyle(0xffffff, 0.75);
     g.fillCircle(r + r * 0.3, r - r * 0.32, Math.max(2, r * 0.2));
     g.lineStyle(2, 0x000000, 0.25);
     g.strokePoints(outline, true);

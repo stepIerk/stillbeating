@@ -183,6 +183,11 @@ export interface EnemyTier {
   speed: number;
   /** Интервал между ударами (мс) */
   attackInterval: number;
+  /**
+   * Радиус тела: он же половина размера текстуры врага, поэтому задаёт и
+   * габарит вида на карте, и радиус хитбокса (увеличен, чтобы бактерии
+   * читались в бою так же крупно, как прежние враги).
+   */
   radius: number;
   color: number;
   xp: number;
@@ -204,24 +209,24 @@ export interface EnemyTier {
 export const ENEMY_TIERS: EnemyTier[] = [
   {
     id: 'slime', name: 'Слизень', hp: 30, damage: 6, speed: 75, attackInterval: 900,
-    radius: 20, color: 0x66bb6a, xp: 5, gold: 4, fromWave: 1, weight: 60, siegeChance: 0.2,
+    radius: 24, color: 0x66bb6a, xp: 5, gold: 4, fromWave: 1, weight: 60, siegeChance: 0.2,
   },
   {
     id: 'runner', name: 'Бегун', hp: 22, damage: 8, speed: 120, attackInterval: 700,
-    radius: 16, color: 0xffb74d, xp: 7, gold: 5, fromWave: 2, weight: 45, siegeChance: 0.25,
+    radius: 19, color: 0xffb74d, xp: 7, gold: 5, fromWave: 2, weight: 45, siegeChance: 0.25,
   },
   {
     id: 'shooter', name: 'Плеватель', hp: 26, damage: 9, speed: 85, attackInterval: 1700,
-    radius: 18, color: 0x26a69a, xp: 9, gold: 6, fromWave: 3, weight: 35, siegeChance: 0.15,
+    radius: 22, color: 0x26a69a, xp: 9, gold: 6, fromWave: 3, weight: 35, siegeChance: 0.15,
     shootRange: 280, projectileSpeed: 320,
   },
   {
     id: 'tank', name: 'Осадник', hp: 90, damage: 14, speed: 55, attackInterval: 1200,
-    radius: 28, color: 0x8e24aa, xp: 18, gold: 12, fromWave: 4, weight: 25, siegeChance: 1,
+    radius: 33, color: 0x8e24aa, xp: 18, gold: 12, fromWave: 4, weight: 25, siegeChance: 1,
   },
   {
     id: 'boss', name: 'Босс', hp: 400, damage: 25, speed: 60, attackInterval: 1000,
-    radius: 40, color: 0xd81b60, xp: 70, gold: 45, fromWave: 5, weight: 0, siegeChance: 0.5,
+    radius: 46, color: 0xd81b60, xp: 70, gold: 45, fromWave: 5, weight: 0, siegeChance: 0.5,
   },
 ];
 

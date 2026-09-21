@@ -14,6 +14,9 @@ import HealthBar from './HealthBar';
 
 export type { EnemyRole, EnemyTarget };
 
+/** Радианов за кадр, на которые враг доворачивает корпус по курсу движения */
+const TURN_STEP = 0.16;
+
 /**
  * Враг. Две вариации поведения:
  *  - hunter — преследует игрока, а если игрок мёртв, идёт ломать кристалл;
@@ -117,9 +120,19 @@ export default class Enemy extends Phaser.Physics.Arcade.Image {
       this.inRange = false;
       const angle = Math.atan2(ty - this.y, tx - this.x);
       this.setVelocity(Math.cos(angle) * this.speed, Math.sin(angle) * this.speed);
+      this.turnTowardsMovement(angle);
     }
 
     this.healthBar.follow(this.x, this.y, -this.tier.radius - 12);
+  }
+
+  /**
+   * Доворот корпуса по курсу движения. Текстуры нарисованы «носом вправо»
+   * (0 рад), поэтому хвост-жгутик бактерии и хоботок стрелка смотрят назад —
+   * против хода. Поворот плавный (TURN_STEP за кадр), без рывков на поворотах.
+   */
+  private turnTowardsMovement(angle: number): void {
+    this.rotation = Phaser.Math.Angle.RotateTo(this.rotation, angle, TURN_STEP);
   }
 
   /** Готов ли враг ударить прямо сейчас (урон наносит сцена) */
