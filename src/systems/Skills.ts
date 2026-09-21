@@ -1,16 +1,25 @@
-import { SKILLS, type SkillDef } from '../config/balance';
+import { SKILLS, SKILL_UPGRADE, type SkillDef } from '../config/balance';
 
 /**
  * Эффективные параметры навыка с учётом уровня прокачки:
  * каждая прибавка из perLevel умножается на (уровень - 1).
+ * Прокачка бесконечна, но перезарядка не опускается ниже
+ * SKILL_UPGRADE.minCooldownFrac базовой.
  */
 export function skillAtLevel(def: SkillDef, level: number): SkillDef {
-  const lv = Math.max(1, Math.min(level, def.maxLevel));
+  const lv = Math.max(1, level);
   const per = def.perLevel ?? {};
   const steps = lv - 1;
 
+  const cooldownFloor = Math.round(def.cooldown * SKILL_UPGRADE.minCooldownFrac);
+  const cooldown =
+    per.cooldown && steps > 0
+      ? Math.max(cooldownFloor, Math.round(def.cooldown - per.cooldown * steps))
+      : def.cooldown;
+
   return {
     ...def,
+    cooldown,
     manaCost: per.manaCost ? Math.max(1, def.manaCost - per.manaCost * steps) : def.manaCost,
     radius: def.radius !== undefined && per.radius ? def.radius + per.radius * steps : def.radius,
     damageMult:
@@ -96,5 +105,6 @@ export function describeSkillUpgrade(def: SkillDef, targetLevel: number): string
   if (per.dashDistance) parts.push(`дальность +${per.dashDistance}`);
   if (per.chainTargets) parts.push(`целей +${per.chainTargets}`);
   if (per.manaCost) parts.push(`мана -${per.manaCost}`);
+  if (per.cooldown) parts.push(`кд -${(per.cooldown / 1000).toFixed(1)} с`);
   return parts.length > 0 ? `${def.name} → УР. ${targetLevel}: ${parts.join(', ')}` : '';
 }

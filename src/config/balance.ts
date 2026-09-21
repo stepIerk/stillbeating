@@ -368,9 +368,9 @@ export interface SkillDef {
   /** Сколько врагов задевает цепная молния */
   chainTargets?: number;
   // ---------- Прокачка за золото ----------
-  /** Максимальный уровень навыка (1 — не улучшается) */
+  /** Максимальный уровень навыка (Infinity — прокачка без предела) */
   maxLevel: number;
-  /** Базовая цена улучшения (растёт с каждым уровнем) */
+  /** Базовая цена улучшения (растёт с каждым уровнем: ×1.5 за уровень) */
   upgradeCost: number;
   /** Прибавка к параметру за каждый уровень навыка */
   perLevel?: {
@@ -383,39 +383,47 @@ export interface SkillDef {
     chainTargets?: number;
     /** Снижение цены маны за уровень */
     manaCost?: number;
+    /** Снижение перезарядки за уровень (мс), не ниже SKILL_UPGRADE.minCooldownFrac */
+    cooldown?: number;
   };
 }
+
+/** Бесконечная прокачка навыков: цена и предел снижения КД */
+export const SKILL_UPGRADE = {
+  /** Перезарядка не опускается ниже этой доли базовой */
+  minCooldownFrac: 0.4,
+} as const;
 
 export const SKILLS: SkillDef[] = [
   {
     id: 'nova', name: 'Нова', desc: 'Взрыв вокруг игрока: урон всем врагам рядом',
     rarity: 'common', shopCost: 35, minShopLevel: 2, manaCost: 20, cooldown: 6000,
     radius: 240, damageMult: 1.4,
-    maxLevel: 4, upgradeCost: 35, perLevel: { radius: 30, damageMult: 0.3 },
+    maxLevel: Infinity, upgradeCost: 35, perLevel: { radius: 30, damageMult: 0.3, cooldown: 250 },
   },
   {
     id: 'dash', name: 'Рывок', desc: 'Стремительный слайд в направлении движения: урон всем врагам на пути, на время рывка игрок неуязвим',
     rarity: 'common', shopCost: 30, minShopLevel: 1, manaCost: 12, cooldown: 5000,
     dashDistance: 260, damageMult: 0.8,
-    maxLevel: 4, upgradeCost: 30, perLevel: { dashDistance: 40, damageMult: 0.2 },
+    maxLevel: Infinity, upgradeCost: 30, perLevel: { dashDistance: 40, damageMult: 0.2, cooldown: 200 },
   },
   {
     id: 'shield', name: 'Ледяной щит', desc: 'Поглощает урон, пока не разобьют или не истечёт',
     rarity: 'rare', shopCost: 45, minShopLevel: 3, manaCost: 30, cooldown: 15000,
     shieldHpPct: 0.4, duration: 8000,
-    maxLevel: 4, upgradeCost: 40, perLevel: { shieldHpPct: 0.1, duration: 1500 },
+    maxLevel: Infinity, upgradeCost: 40, perLevel: { shieldHpPct: 0.1, duration: 1500, cooldown: 600 },
   },
   {
     id: 'chain', name: 'Цепная молния', desc: 'Молния бьёт ближайшего врага и перескакивает на соседних',
     rarity: 'rare', shopCost: 50, minShopLevel: 3, manaCost: 25, cooldown: 9000,
     chainTargets: 3, damageMult: 1.1,
-    maxLevel: 4, upgradeCost: 40, perLevel: { chainTargets: 1, damageMult: 0.25 },
+    maxLevel: Infinity, upgradeCost: 40, perLevel: { chainTargets: 1, damageMult: 0.25, cooldown: 350 },
   },
   {
     id: 'berserk', name: 'Берсерк', desc: 'На время сильно повышает урон',
     rarity: 'epic', shopCost: 60, minShopLevel: 4, manaCost: 25, cooldown: 18000,
     berserkMult: 1.5, duration: 8000,
-    maxLevel: 4, upgradeCost: 50, perLevel: { berserkMult: 0.25, duration: 1000 },
+    maxLevel: Infinity, upgradeCost: 50, perLevel: { berserkMult: 0.25, duration: 1000, cooldown: 700 },
   },
 ];
 

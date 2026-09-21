@@ -12,6 +12,7 @@ import {
   DROPS,
   ENEMY_TIERS,
   SHOP_LEVELS,
+  SKILL_UPGRADE,
   WAVES,
   WEAPONS,
   waveEnemyCount,
@@ -448,13 +449,14 @@ section('Shop: навыки — изучение и улучшение за зо
   check('изученный навык предлагается к улучшению', upOffer?.payload?.skillTargetLevel === 2);
   check('улучшение навыка стоит золото', Boolean(upOffer && upOffer.cost > 0));
 
-  check('навык улучшается за золото', maxed.upgradeSkillLevel('nova', 100, 4) === true);
+  check('навык улучшается за золото', maxed.upgradeSkillLevel('nova', 100, Infinity) === true);
   check('текущий уровень навыка = 2', maxed.skillLevelOf('nova') === 2);
   for (let i = 0; i < 10; i++) {
-    maxed.upgradeSkillLevel('nova', 100, 4);
+    maxed.upgradeSkillLevel('nova', 100, Infinity);
   }
-  check('навык прокачан до предела', maxed.skillLevelOf('nova') === 4);
-  check('улучшение сверх предела отклоняется', maxed.upgradeSkillLevel('nova', 100, 4) === false);
+  check('уровень навыка = 12', maxed.skillLevelOf('nova') === 12);
+  check('прокачка бесконечна: ещё одно улучшение проходит', maxed.upgradeSkillLevel('nova', 100, Infinity) === true);
+  check('текущий уровень навыка = 13', maxed.skillLevelOf('nova') === 13);
 
   check('лавка прокачана до максимума', maxed.shopLevel === SHOP_LEVELS.maxLevel);
   check('апгрейд лавки пропадает из ассортимента на максимуме', !pickShopOffers(maxed).some((o) => o.kind === 'upgrade'));
@@ -511,9 +513,21 @@ section('Skills: описания, эффект и прокачка уровне
   const nova = skillById('nova');
   if (nova) {
     const maxNova = skillAtLevel(nova, nova.maxLevel);
+    const maxNovaOld = skillAtLevel(nova, 4); // прежний предел прокачки
     check('у навыка есть максимальный уровень > 1', nova.maxLevel > 1);
     check('на максимуме радиус больше базового', (maxNova.radius ?? 0) > (nova.radius ?? 0));
     check('на максимуме урон выше базового', (maxNova.damageMult ?? 0) > (nova.damageMult ?? 0));
+
+    // Бесконечная прокачка: параметры продолжают расти за пределом
+    const lv10 = skillAtLevel(nova, 10);
+    check('параметры растут и после старого предела', (lv10.radius ?? 0) > (maxNovaOld.radius ?? 0));
+
+    // КД снижается с уровнем, но не ниже доли базовой
+    const cd10 = skillAtLevel(nova, 10).cooldown;
+    check('кд снижается с уровнем', cd10 < nova.cooldown);
+    check('кд не ниже нижней границы', cd10 >= Math.round(nova.cooldown * SKILL_UPGRADE.minCooldownFrac));
+    const cdFloor = skillAtLevel(nova, 10_000).cooldown;
+    check('кд упирается в нижнюю границу', cdFloor === Math.round(nova.cooldown * SKILL_UPGRADE.minCooldownFrac));
   }
 
   const chain = skillById('chain');
@@ -548,7 +562,7 @@ section('RunState: двойное списание золота (сцена сп
   const upgradeCost = skillUpgradeCost(skillById('dash')!, 2);
   skillRun.addGold(upgradeCost);
   check('сцена списывает золото за улучшение навыка', skillRun.spendGold(upgradeCost) === true);
-  check('улучшение навыка применяется без повторного списания', skillRun.upgradeSkillLevel('dash', 0, 4) === true);
+  check('улучшение навыка применяется без повторного списания', skillRun.upgradeSkillLevel('dash', 0, Infinity) === true);
   check('уровень навыка вырос', skillRun.skillLevelOf('dash') === 2);
 }
 

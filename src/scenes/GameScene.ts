@@ -1151,8 +1151,10 @@ export default class GameScene extends Phaser.Scene {
     if (!skill) {
       return -1;
     }
+    // Нормируем по эффективному КД (снижается с уровнем навыка)
+    const eff = skillAtLevel(skill, this.run.skillLevelOf(skillId));
     const left = (this.skillCooldowns[slot] ?? 0) - now;
-    return left <= 0 ? 1 : Math.max(0, 1 - left / skill.cooldown);
+    return left <= 0 ? 1 : Math.max(0, 1 - left / eff.cooldown);
   }
 
   /** Открытие инвентаря из UI (пауза) */
